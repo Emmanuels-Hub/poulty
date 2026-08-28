@@ -2,26 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 import '../../core/constants/enums.dart';
-import '../../core/services/esp32_api_service.dart';
+import '../../core/services/esp32_ble_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/enum_labels.dart';
-import '../../data/models/settings_model.dart';
 import '../../modules/telemetry/telemetry_controller.dart';
 import '../../widgets/common_widgets.dart';
 
-class SettingsPage extends StatefulWidget {
+class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
 
   @override
-  State<SettingsPage> createState() => _SettingsPageState();
-}
-
-class _SettingsPageState extends State<SettingsPage> {
-  final c = Get.find<TelemetryController>();
-  final api = Get.find<Esp32ApiService>();
-
-  @override
   Widget build(BuildContext context) {
+    final c = Get.find<TelemetryController>();
+
     return Obx(() {
       final settings = c.settings.value;
       final snapshot = c.current.value;
@@ -45,26 +38,80 @@ class _SettingsPageState extends State<SettingsPage> {
                 subtitle: Text('Contact an administrator to change settings'),
               ),
             ),
+          const SectionHeader(title: 'Appearance'),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Theme',
+                    style: TextStyle(color: AppTheme.secondaryText(context)),
+                  ),
+                  const SizedBox(height: 12),
+                  SegmentedButton<ThemeMode>(
+                    segments: const [
+                      ButtonSegment(
+                        value: ThemeMode.light,
+                        icon: Icon(Icons.light_mode),
+                        label: Text('Light'),
+                      ),
+                      ButtonSegment(
+                        value: ThemeMode.dark,
+                        icon: Icon(Icons.dark_mode),
+                        label: Text('Dark'),
+                      ),
+                      ButtonSegment(
+                        value: ThemeMode.system,
+                        icon: Icon(Icons.brightness_auto),
+                        label: Text('System'),
+                      ),
+                    ],
+                    selected: {settings.themeMode},
+                    showSelectedIcon: false,
+                    onSelectionChanged: (selection) =>
+                        c.setThemeMode(selection.first),
+                  ),
+                ],
+              ),
+            ),
+          ),
           const SectionHeader(title: 'Operating Mode'),
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
-              child: DropdownButtonFormField<OperatingMode>(
-                value: snapshot?.operatingMode ?? OperatingMode.automatic,
-                decoration: const InputDecoration(labelText: 'System Mode'),
-                items: OperatingMode.values
-                    .map(
-                      (m) => DropdownMenuItem(
-                        value: m,
-                        child: Text(EnumLabels.operatingMode(m)),
-                      ),
-                    )
-                    .toList(),
-                onChanged: canControl
-                    ? (m) {
-                        if (m != null) c.setOperatingMode(m);
-                      }
-                    : null,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  DropdownButtonFormField<OperatingMode>(
+                    initialValue:
+                        snapshot?.operatingMode ?? OperatingMode.automatic,
+                    decoration: const InputDecoration(labelText: 'System Mode'),
+                    items: OperatingMode.values
+                        .map(
+                          (m) => DropdownMenuItem(
+                            value: m,
+                            child: Text(EnumLabels.operatingMode(m)),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: canControl
+                        ? (m) {
+                            if (m != null) c.setOperatingMode(m);
+                          }
+                        : null,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Manual mode activates the actuator switches on the '
+                    'dashboard. In Automatic the controller runs them.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: AppTheme.secondaryText(context),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -73,7 +120,7 @@ class _SettingsPageState extends State<SettingsPage> {
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: DropdownButtonFormField<PoultryStage>(
-                value: snapshot?.poultryStage ?? PoultryStage.starter,
+                initialValue: snapshot?.poultryStage ?? PoultryStage.starter,
                 decoration: const InputDecoration(labelText: 'Growth Stage'),
                 items: PoultryStage.values
                     .map(
@@ -83,252 +130,161 @@ class _SettingsPageState extends State<SettingsPage> {
                       ),
                     )
                     .toList(),
-                onChanged: canControl
-                    ? (s) {
-                        if (s != null) c.setPoultryStage(s);
-                      }
-                    : null,
+                // Starter is the only supported stage.
+                onChanged: null,
               ),
             ),
           ),
-          const SectionHeader(title: 'Sensor Data Sources'),
-          ...SensorType.values.map((sensor) {
-            final source = snapshot?.sourceFor(sensor) ?? DataSource.live;
-            return SwitchListTile(
-              title: Text(EnumLabels.sensor(sensor)),
-              subtitle: Text(source == DataSource.live ? 'Live data' : 'Simulated data'),
-              value: source == DataSource.simulated,
-              onChanged: canControl
-                  ? (v) => c.setSensorSource(
-                        sensor,
-                        v ? DataSource.simulated : DataSource.live,
-                      )
-                  : null,
-            );
-          }),
-          const SectionHeader(title: 'Thresholds & Notifications'),
+          const SectionHeader(title: 'ESP32 Connection (Bluetooth)'),
           Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  ListTile(
-                    title: const Text('Notification interval'),
-                    subtitle: Text('${settings.notificationIntervalMinutes} minutes'),
-                    trailing: SizedBox(
-                      width: 120,
-                      child: Slider(
-                        value: settings.notificationIntervalMinutes.toDouble(),
-                        min: 1,
-                        max: 30,
-                        divisions: 29,
-                        label: '${settings.notificationIntervalMinutes} min',
-                        onChanged: canControl
-                            ? (v) => _updateSettings(
-                                  settings.copyWith(
-                                    notificationIntervalMinutes: v.round(),
-                                  ),
-                                )
-                            : null,
-                      ),
-                    ),
+            child: Column(
+              children: [
+                ListTile(
+                  leading: Icon(
+                    c.isConnected
+                        ? Icons.bluetooth_connected
+                        : Icons.bluetooth_disabled,
+                    color: c.isConnected
+                        ? AppTheme.successGreen
+                        : AppTheme.secondaryText(context),
                   ),
-                  ListTile(
-                    title: const Text('Battery low threshold'),
-                    subtitle: Text('${settings.batteryLowThreshold.toStringAsFixed(0)}%'),
-                    trailing: SizedBox(
-                      width: 120,
-                      child: Slider(
-                        value: settings.batteryLowThreshold,
-                        min: 5,
-                        max: 50,
-                        divisions: 9,
-                        onChanged: canControl
-                            ? (v) => _updateSettings(
-                                  settings.copyWith(batteryLowThreshold: v),
-                                )
-                            : null,
-                      ),
-                    ),
+                  title: Text(
+                    c.activeDevice.value?.name ?? 'No controller paired',
                   ),
-                  ListTile(
-                    title: const Text('Manual actuator timeout'),
-                    subtitle: Text('${settings.manualActuatorTimeoutMinutes} minutes'),
-                    trailing: SizedBox(
-                      width: 120,
-                      child: Slider(
-                        value: settings.manualActuatorTimeoutMinutes.toDouble(),
-                        min: 5,
-                        max: 60,
-                        divisions: 11,
-                        onChanged: canControl
-                            ? (v) => _updateSettings(
-                                  settings.copyWith(
-                                    manualActuatorTimeoutMinutes: v.round(),
-                                  ),
-                                )
-                            : null,
-                      ),
-                    ),
+                  subtitle: Text(
+                    EnumLabels.connectionStatus(c.connectionStatus.value),
                   ),
-                ],
-              ),
+                  trailing: c.isConnected
+                      ? TextButton(
+                          onPressed: canControl ? c.disconnectDevice : null,
+                          child: const Text('Disconnect'),
+                        )
+                      : TextButton(
+                          onPressed: canControl
+                              ? () => _showScanSheet(context, c)
+                              : null,
+                          child: const Text('Scan'),
+                        ),
+                ),
+                const Divider(height: 1),
+                SwitchListTile(
+                  title: const Text('Demo data when disconnected'),
+                  subtitle: const Text(
+                    'Show generated readings while no controller is linked',
+                  ),
+                  value: settings.useDemoDataWhenDisconnected,
+                  onChanged: canControl
+                      ? (v) => c.saveSettings(
+                          settings.copyWith(useDemoDataWhenDisconnected: v),
+                        )
+                      : null,
+                ),
+              ],
             ),
-          ),
-          const SectionHeader(title: 'Stage Thresholds'),
-          ...settings.stageThresholds.map(
-            (t) => Card(
-              child: ExpansionTile(
-                title: Text('${EnumLabels.poultryStage(t.stage)} Stage'),
-                children: [
-                  _thresholdField('Temp Min (°C)', t.tempMin, canControl, (v) {
-                    _updateStageThreshold(t.copyWith(tempMin: v));
-                  }),
-                  _thresholdField('Temp Max (°C)', t.tempMax, canControl, (v) {
-                    _updateStageThreshold(t.copyWith(tempMax: v));
-                  }),
-                  _thresholdField('Humidity Min (%)', t.humidityMin, canControl, (v) {
-                    _updateStageThreshold(t.copyWith(humidityMin: v));
-                  }),
-                  _thresholdField('Humidity Max (%)', t.humidityMax, canControl, (v) {
-                    _updateStageThreshold(t.copyWith(humidityMax: v));
-                  }),
-                  _thresholdField('Ammonia Max (ppm)', t.ammoniaMax, canControl, (v) {
-                    _updateStageThreshold(t.copyWith(ammoniaMax: v));
-                  }),
-                ],
-              ),
-            ),
-          ),
-          const SectionHeader(title: 'Lighting Schedule'),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  SwitchListTile(
-                    title: const Text('Use lighting schedule'),
-                    value: settings.lightingSchedule.useSchedule,
-                    onChanged: canControl
-                        ? (v) => _updateSettings(
-                              settings.copyWith(
-                                lightingSchedule: settings.lightingSchedule
-                                    .copyWith(useSchedule: v),
-                              ),
-                            )
-                        : null,
-                  ),
-                  ListTile(
-                    title: const Text('Lights ON'),
-                    subtitle: Text(settings.lightingSchedule.onTime),
-                    trailing: canControl
-                        ? IconButton(
-                            icon: const Icon(Icons.schedule),
-                            onPressed: () => _pickTime(
-                              settings.lightingSchedule.onTime,
-                              (t) => _updateSettings(
-                                settings.copyWith(
-                                  lightingSchedule:
-                                      settings.lightingSchedule.copyWith(onTime: t),
-                                ),
-                              ),
-                            ),
-                          )
-                        : null,
-                  ),
-                  ListTile(
-                    title: const Text('Lights OFF'),
-                    subtitle: Text(settings.lightingSchedule.offTime),
-                    trailing: canControl
-                        ? IconButton(
-                            icon: const Icon(Icons.schedule),
-                            onPressed: () => _pickTime(
-                              settings.lightingSchedule.offTime,
-                              (t) => _updateSettings(
-                                settings.copyWith(
-                                  lightingSchedule:
-                                      settings.lightingSchedule.copyWith(offTime: t),
-                                ),
-                              ),
-                            ),
-                          )
-                        : null,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SectionHeader(title: 'Connection'),
-          SwitchListTile(
-            title: const Text('Simulation mode (no hardware)'),
-            subtitle: const Text('Use simulated ESP32 data for development'),
-            value: api.useSimulation,
-            onChanged: canControl
-                ? (v) {
-                    api.setUseSimulation(v);
-                    setState(() {});
-                    c.refreshNow();
-                  }
-                : null,
-          ),
-          SwitchListTile(
-            title: const Text('Simulate when offline'),
-            value: settings.useSimulationWhenOffline,
-            onChanged: canControl
-                ? (v) => _updateSettings(
-                      settings.copyWith(useSimulationWhenOffline: v),
-                    )
-                : null,
           ),
         ],
       );
     });
   }
 
-  Widget _thresholdField(
-    String label,
-    double value,
-    bool enabled,
-    ValueChanged<double> onChanged,
-  ) {
-    return ListTile(
-      title: Text(label),
-      subtitle: Slider(
-        value: value,
-        min: 0,
-        max: 100,
-        divisions: 100,
-        label: value.toStringAsFixed(1),
-        onChanged: enabled ? onChanged : null,
-      ),
-    );
-  }
+  Future<void> _showScanSheet(
+    BuildContext context,
+    TelemetryController c,
+  ) async {
+    c.startScan();
 
-  Future<void> _pickTime(String current, ValueChanged<String> onPicked) async {
-    final parts = current.split(':');
-    final time = await showTimePicker(
+    await showModalBottomSheet<void>(
       context: context,
-      initialTime: TimeOfDay(
-        hour: int.parse(parts[0]),
-        minute: int.parse(parts[1]),
+      isScrollControlled: true,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Nearby controllers',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    Obx(
+                      () => c.isScanning.value
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : IconButton(
+                              icon: const Icon(Icons.refresh),
+                              onPressed: c.startScan,
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              Obx(() {
+                final found = c.discoveredDevices;
+                if (found.isEmpty) {
+                  return EmptyState(
+                    icon: Icons.bluetooth_searching,
+                    message: c.isScanning.value
+                        ? 'Scanning for your ESP32…'
+                        : 'No controllers found. Make sure the ESP32 is '
+                              'powered on and advertising.',
+                  );
+                }
+                return ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 320),
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: found.length,
+                    itemBuilder: (context, index) {
+                      final device = found[index];
+                      return ListTile(
+                        leading: const Icon(Icons.memory),
+                        title: Text(
+                          device.name.isEmpty ? 'Unnamed device' : device.name,
+                        ),
+                        subtitle: Text('${device.id} · ${device.rssi} dBm'),
+                        trailing: const Icon(Icons.link),
+                        onTap: () => _pair(ctx, c, device),
+                      );
+                    },
+                  ),
+                );
+              }),
+            ],
+          ),
+        ),
       ),
     );
-    if (time != null) {
-      onPicked(
-        '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}',
-      );
-    }
+
+    await c.stopScan();
   }
 
-  void _updateSettings(AppSettings newSettings) {
-    c.saveSettings(newSettings);
-  }
-
-  void _updateStageThreshold(StageThresholds updated) {
-    final settings = c.settings.value;
-    final list = settings.stageThresholds.map((t) {
-      return t.stage == updated.stage ? updated : t;
-    }).toList();
-    c.saveSettings(settings.copyWith(stageThresholds: list));
+  Future<void> _pair(
+    BuildContext sheetContext,
+    TelemetryController c,
+    DiscoveredDevice device,
+  ) async {
+    final connected = await c.pairAndConnect(device);
+    if (!sheetContext.mounted) return;
+    Navigator.pop(sheetContext);
+    Get.snackbar(
+      connected ? 'Connected' : 'Connection failed',
+      connected
+          ? 'Linked to ${device.name}'
+          : 'Could not connect to ${device.name}. Check that it is powered on.',
+      snackPosition: SnackPosition.BOTTOM,
+    );
   }
 }

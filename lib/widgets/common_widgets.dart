@@ -62,7 +62,7 @@ class MetricCard extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: AppTheme.textSecondary,
+                    color: AppTheme.secondaryText(context),
                     fontSize: isCompact ? 11 : null,
                   ),
                 ),
@@ -84,7 +84,7 @@ class MetricCard extends StatelessWidget {
                                 .headlineSmall
                                 ?.copyWith(
                                   fontWeight: FontWeight.bold,
-                                  color: AppTheme.textPrimary,
+                                  color: AppTheme.primaryText(context),
                                   fontSize: isCompact ? 20 : null,
                                 ),
                           ),
@@ -94,7 +94,7 @@ class MetricCard extends StatelessWidget {
                             child: Text(
                               unit,
                               style: TextStyle(
-                                color: AppTheme.textSecondary,
+                                color: AppTheme.secondaryText(context),
                                 fontSize: isCompact ? 11 : 13,
                               ),
                             ),
@@ -112,7 +112,7 @@ class MetricCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: isCompact ? 10 : 12,
-                      color: AppTheme.textSecondary,
+                      color: AppTheme.secondaryText(context),
                     ),
                   ),
                 ],
@@ -212,12 +212,12 @@ class EmptyState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 48, color: AppTheme.textSecondary),
+            Icon(icon, size: 48, color: AppTheme.secondaryText(context)),
             const SizedBox(height: 12),
             Text(
               message,
               textAlign: TextAlign.center,
-              style: const TextStyle(color: AppTheme.textSecondary),
+              style: TextStyle(color: AppTheme.secondaryText(context)),
             ),
           ],
         ),

@@ -56,10 +56,10 @@ class _LoginPageState extends State<LoginPage> {
                         ),
                   ),
                   const SizedBox(height: 8),
-                  const Text(
+                  Text(
                     'Environmental Monitoring & Control',
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: AppTheme.textSecondary),
+                    style: TextStyle(color: AppTheme.secondaryText(context)),
                   ),
                   const SizedBox(height: 32),
                   Card(
@@ -142,10 +142,13 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  const Text(
+                  Text(
                     'Demo: admin / admin123 (Admin) · viewer / viewer123 (View Only)',
                     textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: AppTheme.secondaryText(context),
+                    ),
                   ),
                 ],
               ),

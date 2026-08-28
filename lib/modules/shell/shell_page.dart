@@ -6,15 +6,13 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/enum_labels.dart';
 import '../../modules/auth/auth_controller.dart';
 import '../../modules/telemetry/telemetry_controller.dart';
+import '../../widgets/common_widgets.dart';
 import '../analytics/analytics_page.dart';
-import '../camera/camera_page.dart';
-
 import '../dashboard/dashboard_page.dart';
-import '../diagnostics/diagnostics_page.dart';
+import '../devices/devices_page.dart';
+import '../livefeed/live_feed_page.dart';
 import '../notifications/notifications_page.dart';
 import '../settings/settings_page.dart';
-import '../../widgets/common_widgets.dart';
-import '../devices/devices_page.dart';
 import '../users/users_page.dart';
 
 class ShellPage extends StatefulWidget {
@@ -25,6 +23,8 @@ class ShellPage extends StatefulWidget {
 }
 
 class _ShellPageState extends State<ShellPage> {
+  static const _alertsIndex = 3;
+
   int _index = 0;
 
   @override
@@ -32,13 +32,12 @@ class _ShellPageState extends State<ShellPage> {
     final auth = Get.find<AuthController>();
     final telemetry = Get.find<TelemetryController>();
 
-    final pages = [
-      const DashboardPage(),
-      const AnalyticsPage(),
-      const CameraPage(),
-      const NotificationsPage(),
-      const DiagnosticsPage(),
-      const SettingsPage(),
+    const pages = [
+      DashboardPage(),
+      AnalyticsPage(),
+      LiveFeedPage(),
+      NotificationsPage(),
+      SettingsPage(),
     ];
 
     return Scaffold(
@@ -47,17 +46,18 @@ class _ShellPageState extends State<ShellPage> {
         actions: [
           Obx(() {
             final status = telemetry.connectionStatus.value;
-            final color = status == DeviceConnectionStatus.offline
-                ? AppTheme.criticalRed
-                : AppTheme.successGreen;
             return Padding(
               padding: const EdgeInsets.only(right: 8),
               child: StatusChip(
                 label: EnumLabels.connectionStatus(status),
-                color: color,
-                icon: status == DeviceConnectionStatus.offline
-                    ? Icons.cloud_off
-                    : Icons.cloud_done,
+                color: switch (status) {
+                  DeviceConnectionStatus.connected => AppTheme.successGreen,
+                  DeviceConnectionStatus.connecting => AppTheme.warningOrange,
+                  DeviceConnectionStatus.disconnected => AppTheme.criticalRed,
+                },
+                icon: status == DeviceConnectionStatus.connected
+                    ? Icons.bluetooth_connected
+                    : Icons.bluetooth_disabled,
               ),
             );
           }),
@@ -68,7 +68,7 @@ class _ShellPageState extends State<ShellPage> {
               children: [
                 IconButton(
                   icon: const Icon(Icons.notifications_outlined),
-                  onPressed: () => setState(() => _index = 3),
+                  onPressed: () => setState(() => _index = _alertsIndex),
                 ),
                 if (count > 0)
                   Positioned(
@@ -80,10 +80,16 @@ class _ShellPageState extends State<ShellPage> {
                         color: AppTheme.criticalRed,
                         shape: BoxShape.circle,
                       ),
-                      constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                      constraints: const BoxConstraints(
+                        minWidth: 16,
+                        minHeight: 16,
+                      ),
                       child: Text(
                         '$count',
-                        style: const TextStyle(color: Colors.white, fontSize: 10),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                        ),
                         textAlign: TextAlign.center,
                       ),
                     ),
@@ -101,15 +107,23 @@ class _ShellPageState extends State<ShellPage> {
             itemBuilder: (context) => [
               PopupMenuItem(
                 enabled: false,
-                child: Obx(() => Text(
-                      auth.user.value?.displayName ?? '',
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    )),
+                child: Obx(
+                  () => Text(
+                    auth.user.value?.displayName ?? '',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
               ),
               if (auth.isAdmin)
-                const PopupMenuItem(value: 'users', child: Text('User Management')),
+                const PopupMenuItem(
+                  value: 'users',
+                  child: Text('User Management'),
+                ),
               if (auth.isAdmin)
-                const PopupMenuItem(value: 'devices', child: Text('Device Management')),
+                const PopupMenuItem(
+                  value: 'devices',
+                  child: Text('Device Management'),
+                ),
               const PopupMenuItem(value: 'logout', child: Text('Logout')),
             ],
           ),
@@ -120,12 +134,31 @@ class _ShellPageState extends State<ShellPage> {
         selectedIndex: _index,
         onDestinationSelected: (i) => setState(() => _index = i),
         destinations: const [
-          NavigationDestination(icon: Icon(Icons.dashboard_outlined), selectedIcon: Icon(Icons.dashboard), label: 'Home'),
-          NavigationDestination(icon: Icon(Icons.analytics_outlined), selectedIcon: Icon(Icons.analytics), label: 'Analytics'),
-          NavigationDestination(icon: Icon(Icons.camera_alt_outlined), selectedIcon: Icon(Icons.camera_alt), label: 'Camera'),
-          NavigationDestination(icon: Icon(Icons.notifications_outlined), selectedIcon: Icon(Icons.notifications), label: 'Alerts'),
-          NavigationDestination(icon: Icon(Icons.build_outlined), selectedIcon: Icon(Icons.build), label: 'Diagnostics'),
-          NavigationDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings), label: 'Settings'),
+          NavigationDestination(
+            icon: Icon(Icons.dashboard_outlined),
+            selectedIcon: Icon(Icons.dashboard),
+            label: 'Home',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.analytics_outlined),
+            selectedIcon: Icon(Icons.analytics),
+            label: 'Analytics',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.videocam_outlined),
+            selectedIcon: Icon(Icons.videocam),
+            label: 'Live Feed',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.notifications_outlined),
+            selectedIcon: Icon(Icons.notifications),
+            label: 'Alerts',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.settings_outlined),
+            selectedIcon: Icon(Icons.settings),
+            label: 'Settings',
+          ),
         ],
       ),
     );

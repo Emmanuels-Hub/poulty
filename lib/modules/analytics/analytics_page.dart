@@ -16,11 +16,25 @@ class AnalyticsPage extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.only(bottom: 24),
       children: [
-        const Padding(
-          padding: EdgeInsets.all(16),
-          child: Text(
-            'Historical Analytics',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Historical Analytics',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Readings are averaged into trend points, so values are '
+                'approximate.',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: AppTheme.secondaryText(context),
+                ),
+              ),
+            ],
           ),
         ),
         Obx(
@@ -37,14 +51,18 @@ class AnalyticsPage extends StatelessWidget {
             unit: '%',
             data: List<TelemetryHistoryPoint>.from(c.humidityHistory),
             color: AppTheme.infoBlue,
+            decimals: 0,
           ),
         ),
         Obx(
           () => HistoryChart(
-            title: 'Ammonia',
-            unit: 'ppm',
-            data: List<TelemetryHistoryPoint>.from(c.ammoniaHistory),
-            color: AppTheme.warningOrange,
+            title: 'Air Purity',
+            unit: '%',
+            data: List<TelemetryHistoryPoint>.from(c.airPurityHistory),
+            color: AppTheme.successGreen,
+            minY: 0,
+            maxY: 100,
+            decimals: 0,
           ),
         ),
         Obx(
@@ -55,6 +73,7 @@ class AnalyticsPage extends StatelessWidget {
             color: AppTheme.accentAmber,
             minY: 0,
             maxY: 100,
+            decimals: 0,
           ),
         ),
         Obx(
@@ -65,16 +84,7 @@ class AnalyticsPage extends StatelessWidget {
             color: AppTheme.infoBlue,
             minY: 0,
             maxY: 100,
-          ),
-        ),
-        Obx(
-          () => HistoryChart(
-            title: 'Battery',
-            unit: '%',
-            data: List<TelemetryHistoryPoint>.from(c.batteryHistory),
-            color: AppTheme.successGreen,
-            minY: 0,
-            maxY: 100,
+            decimals: 0,
           ),
         ),
       ],

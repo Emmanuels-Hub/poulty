@@ -105,20 +105,18 @@ class NotificationsPage extends StatelessWidget {
         return Icons.thermostat;
       case AlertType.abnormalHumidity:
         return Icons.water_drop;
-      case AlertType.abnormalAmmonia:
-        return Icons.cloud;
+      case AlertType.poorAirPurity:
+        return Icons.air;
       case AlertType.lowFeed:
         return Icons.grain;
       case AlertType.lowWater:
         return Icons.water;
-      case AlertType.lowBattery:
-        return Icons.battery_alert;
       case AlertType.actuatorFailure:
         return Icons.error_outline;
       case AlertType.systemRestart:
         return Icons.restart_alt;
-      case AlertType.internetReconnected:
-        return Icons.wifi;
+      case AlertType.deviceReconnected:
+        return Icons.bluetooth_connected;
       case AlertType.custom:
         return Icons.notifications;
     }

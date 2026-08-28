@@ -1,27 +1,33 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../core/constants/app_constants.dart';
 import '../../core/constants/enums.dart';
 import '../../core/services/alert_service.dart';
 import '../../core/services/auth_service.dart';
-import '../../core/services/esp32_api_service.dart';
+import '../../core/services/esp32_ble_service.dart';
 import '../../core/services/local_storage_service.dart';
+import '../../core/services/simulation_service.dart';
 import '../../data/models/device_model.dart';
 import '../../data/models/event_model.dart';
 import '../../data/models/settings_model.dart';
 import '../../data/models/telemetry_model.dart';
-import 'package:uuid/uuid.dart';
 
 class TelemetryController extends GetxController {
   TelemetryController(
     this._storage,
-    this._api,
+    this._ble,
+    this._simulation,
     this._alerts,
     this._auth,
   );
 
   final LocalStorageService _storage;
-  final Esp32ApiService _api;
+  final Esp32BleService _ble;
+  final SimulationService _simulation;
   final AlertService _alerts;
   final AuthService _auth;
   final _uuid = const Uuid();
@@ -31,33 +37,80 @@ class TelemetryController extends GetxController {
       <TelemetryHistoryPoint>[].obs;
   final RxList<TelemetryHistoryPoint> humidityHistory =
       <TelemetryHistoryPoint>[].obs;
-  final RxList<TelemetryHistoryPoint> ammoniaHistory =
+  final RxList<TelemetryHistoryPoint> airPurityHistory =
       <TelemetryHistoryPoint>[].obs;
   final RxList<TelemetryHistoryPoint> feedHistory =
       <TelemetryHistoryPoint>[].obs;
   final RxList<TelemetryHistoryPoint> waterHistory =
       <TelemetryHistoryPoint>[].obs;
-  final RxList<TelemetryHistoryPoint> batteryHistory =
-      <TelemetryHistoryPoint>[].obs;
   final RxList<SystemEvent> events = <SystemEvent>[].obs;
   final RxList<AppNotification> notifications = <AppNotification>[].obs;
   final RxList<DeviceModel> devices = <DeviceModel>[].obs;
+  final RxList<DiscoveredDevice> discoveredDevices = <DiscoveredDevice>[].obs;
   final Rxn<DeviceModel> activeDevice = Rxn<DeviceModel>();
   final Rx<AppSettings> settings = AppSettings.defaults().obs;
   final Rx<DeviceConnectionStatus> connectionStatus =
-      DeviceConnectionStatus.offline.obs;
-  final RxBool isPolling = false.obs;
-  final RxBool isOffline = false.obs;
-  final RxInt queuedCommands = 0.obs;
-  final RxInt uptimeHours = 0.obs;
-  final RxDouble systemHealthScore = 100.0.obs;
+      DeviceConnectionStatus.disconnected.obs;
+  final RxBool isScanning = false.obs;
+  final RxBool isMonitoring = false.obs;
+
+  StreamSubscription<TelemetrySnapshot>? _telemetrySub;
+  StreamSubscription<DeviceConnectionStatus>? _statusSub;
+  StreamSubscription<List<DiscoveredDevice>>? _scanSub;
+  Timer? _demoTimer;
 
   bool get canControl => _auth.isAdmin;
+
+  bool get isConnected =>
+      connectionStatus.value == DeviceConnectionStatus.connected;
+
+  /// Manual actuator switches only go live once Manual mode has been activated
+  /// in Settings — otherwise the controller owns the actuators.
+  bool get isManualModeActive =>
+      current.value?.operatingMode == OperatingMode.manual;
+
+  bool get canControlActuators => canControl && isManualModeActive;
+
+  ThemeMode get themeMode => settings.value.themeMode;
 
   @override
   void onInit() {
     super.onInit();
     _loadCachedData();
+    _bindBleStreams();
+  }
+
+  @override
+  void onClose() {
+    _telemetrySub?.cancel();
+    _statusSub?.cancel();
+    _scanSub?.cancel();
+    _demoTimer?.cancel();
+    super.onClose();
+  }
+
+  void _bindBleStreams() {
+    _telemetrySub = _ble.telemetry.listen(_ingest);
+
+    _statusSub = _ble.connectionStatusStream.listen((status) async {
+      final wasDisconnected =
+          connectionStatus.value != DeviceConnectionStatus.connected;
+      connectionStatus.value = status;
+
+      if (status == DeviceConnectionStatus.connected) {
+        _demoTimer?.cancel();
+        if (wasDisconnected) {
+          await _alerts.notifyReconnected();
+          notifications.assignAll(_storage.getNotifications());
+          await _logEvent(EventCategory.connection, 'Controller connected');
+        }
+      } else if (status == DeviceConnectionStatus.disconnected) {
+        await _logEvent(EventCategory.connection, 'Controller disconnected');
+        _startDemoFeedIfEnabled();
+      }
+    });
+
+    _scanSub = _ble.scanResults.listen(discoveredDevices.assignAll);
   }
 
   Future<void> startMonitoring() async {
@@ -68,76 +121,107 @@ class TelemetryController extends GetxController {
     }
 
     activeDevice.value = devices.isNotEmpty ? devices.first : null;
-    if (activeDevice.value != null) {
-      _api.setActiveDevice(activeDevice.value!);
-    }
-
     settings.value = _storage.getSettings();
     events.assignAll(_storage.getEvents());
     notifications.assignAll(_storage.getNotifications());
     _loadHistoryFromCache();
-    isPolling.value = true;
-    await _poll();
+    isMonitoring.value = true;
+
+    final device = activeDevice.value;
+    if (device != null && device.isPaired) {
+      await connectToDevice(device);
+    } else {
+      _startDemoFeedIfEnabled();
+    }
   }
 
   void stopMonitoring() {
-    isPolling.value = false;
+    isMonitoring.value = false;
+    _demoTimer?.cancel();
+    _ble.disconnect();
   }
 
-  Future<void> refreshNow() => _poll();
+  Future<void> refreshNow() async {
+    if (!isConnected) _emitDemoSnapshot();
+  }
 
-  Future<void> _poll() async {
-    if (!isPolling.value) return;
+  // --- BLE pairing ---------------------------------------------------------
 
-    try {
-      final hasNetwork = await _api.checkConnectivity();
-      final previousOffline = isOffline.value;
-      isOffline.value = !hasNetwork;
+  Future<void> startScan() async {
+    if (!canControl) return;
+    discoveredDevices.clear();
+    isScanning.value = true;
+    await _ble.startScan();
+    Future.delayed(AppConstants.bleScanTimeout, () => isScanning.value = false);
+  }
 
-      if (activeDevice.value != null) {
-        final previousStatus = connectionStatus.value;
-        connectionStatus.value =
-            await _api.probeConnection(activeDevice.value!);
+  Future<void> stopScan() async {
+    await _ble.stopScan();
+    isScanning.value = false;
+  }
 
-        if (previousStatus == DeviceConnectionStatus.offline &&
-            connectionStatus.value != DeviceConnectionStatus.offline) {
-          await _alerts.notifyReconnected();
-          await _logEvent(EventCategory.network, 'Connection restored');
-        }
-      }
+  /// Remembers [discovered] as the active controller, then connects to it.
+  Future<bool> pairAndConnect(DiscoveredDevice discovered) async {
+    if (!canControl) return false;
+    await stopScan();
 
-      if (previousOffline && hasNetwork) {
-        notifications.assignAll(_storage.getNotifications());
-      }
+    final existing = activeDevice.value;
+    final device =
+        (existing ?? DeviceModel(id: _uuid.v4(), name: discovered.name))
+            .copyWith(
+      name: discovered.name.isNotEmpty ? discovered.name : 'Coop Controller',
+      bleId: discovered.id,
+      lastSeen: DateTime.now(),
+    );
 
-      final snapshot = await _api.fetchTelemetry(
-        device: activeDevice.value,
-        settings: settings.value,
-        mode: current.value?.operatingMode,
-      );
+    await saveDevice(device);
+    activeDevice.value = device;
+    await _logEvent(EventCategory.connection, 'Paired with ${device.name}');
+    return connectToDevice(device);
+  }
 
-      current.value = snapshot;
-      await _storage.saveLatestTelemetry(snapshot);
-      _updateHistory(snapshot);
-      notifications.assignAll(_alerts.evaluate(snapshot, settings.value));
-      _updateHealthScore(snapshot);
-      queuedCommands.value = _storage.getQueuedCommands().length;
-
-      if (hasNetwork && queuedCommands.value > 0) {
-        final sent = await _api.flushCommandQueue();
-        if (sent > 0) {
-          await _logEvent(
-            EventCategory.network,
-            'Synced $sent queued command(s)',
-          );
-          queuedCommands.value = _storage.getQueuedCommands().length;
-        }
-      }
-    } catch (e) {
-      connectionStatus.value = DeviceConnectionStatus.offline;
+  Future<bool> connectToDevice(DeviceModel device) async {
+    if (!device.isPaired) return false;
+    connectionStatus.value = DeviceConnectionStatus.connecting;
+    final connected = await _ble.connect(device);
+    if (!connected) {
+      connectionStatus.value = DeviceConnectionStatus.disconnected;
+      _startDemoFeedIfEnabled();
     }
+    return connected;
+  }
 
-    Future.delayed(AppConstants.telemetryPollInterval, _poll);
+  Future<void> disconnectDevice() => _ble.disconnect();
+
+  // --- Telemetry -----------------------------------------------------------
+
+  void _ingest(TelemetrySnapshot snapshot) {
+    current.value = snapshot;
+    _storage.saveLatestTelemetry(snapshot);
+    _updateHistory(snapshot);
+    notifications.assignAll(_alerts.evaluate(snapshot, settings.value));
+  }
+
+  void _startDemoFeedIfEnabled() {
+    _demoTimer?.cancel();
+    if (!isMonitoring.value) return;
+    if (!settings.value.useDemoDataWhenDisconnected) return;
+
+    _emitDemoSnapshot();
+    _demoTimer = Timer.periodic(AppConstants.telemetryPollInterval, (_) {
+      if (isConnected || !settings.value.useDemoDataWhenDisconnected) {
+        _demoTimer?.cancel();
+        return;
+      }
+      _emitDemoSnapshot();
+    });
+  }
+
+  void _emitDemoSnapshot() {
+    if (!settings.value.useDemoDataWhenDisconnected) return;
+    _ingest(
+      _simulation.generate(device: activeDevice.value, settings: settings.value),
+    );
   }
 
   void _loadCachedData() {
@@ -152,20 +236,17 @@ class TelemetryController extends GetxController {
   void _loadHistoryFromCache() {
     temperatureHistory.assignAll(_storage.getHistory('temperature'));
     humidityHistory.assignAll(_storage.getHistory('humidity'));
-    ammoniaHistory.assignAll(_storage.getHistory('ammonia'));
+    airPurityHistory.assignAll(_storage.getHistory('airPurity'));
     feedHistory.assignAll(_storage.getHistory('feed'));
     waterHistory.assignAll(_storage.getHistory('water'));
-    batteryHistory.assignAll(_storage.getHistory('battery'));
   }
 
   void _updateHistory(TelemetrySnapshot snapshot) {
     _appendPoint('temperature', snapshot.temperatureC, temperatureHistory);
     _appendPoint('humidity', snapshot.humidityPercent, humidityHistory);
-    _appendPoint('ammonia', snapshot.ammoniaPpm, ammoniaHistory);
+    _appendPoint('airPurity', snapshot.airPurityPercent, airPurityHistory);
     _appendPoint('feed', snapshot.feedLevelPercent, feedHistory);
     _appendPoint('water', snapshot.waterLevelPercent, waterHistory);
-    _appendPoint('battery', snapshot.batteryPercent, batteryHistory);
-    uptimeHours.value = snapshot.uptimeSeconds ~/ 3600;
   }
 
   void _appendPoint(
@@ -185,52 +266,34 @@ class TelemetryController extends GetxController {
     _storage.appendHistoryPoint(point);
   }
 
-  void _updateHealthScore(TelemetrySnapshot snapshot) {
-    var score = 100.0;
-    final t = settings.value.thresholdsFor(snapshot.poultryStage);
-
-    if (snapshot.temperatureC < t.tempMin || snapshot.temperatureC > t.tempMax) {
-      score -= 15;
-    }
-    if (snapshot.humidityPercent < t.humidityMin ||
-        snapshot.humidityPercent > t.humidityMax) {
-      score -= 10;
-    }
-    if (snapshot.ammoniaPpm > t.ammoniaMax) score -= 20;
-    if (snapshot.feedLevelPercent <= t.feedLowThreshold) score -= 10;
-    if (snapshot.waterLevelPercent <= t.waterLowThreshold) score -= 10;
-    if (snapshot.batteryPercent <= settings.value.batteryLowThreshold) {
-      score -= 15;
-    }
-    if (connectionStatus.value == DeviceConnectionStatus.offline) score -= 20;
-    if (snapshot.actuators.any((a) => a.hasFailure)) score -= 15;
-
-    systemHealthScore.value = score.clamp(0, 100);
-  }
+  // --- Commands ------------------------------------------------------------
 
   Future<void> setOperatingMode(OperatingMode mode) async {
     if (!canControl) return;
-    await _api.setOperatingMode(mode);
+    _simulation.setMode(mode);
+    await _ble.setOperatingMode(mode);
+    current.value = current.value?.copyWith(operatingMode: mode);
     await _logEvent(EventCategory.system, 'Operating mode set to ${mode.name}');
     await refreshNow();
   }
 
   Future<void> setPoultryStage(PoultryStage stage) async {
     if (!canControl) return;
-    await _api.setPoultryStage(stage);
-    await _logEvent(EventCategory.system, 'Production stage set to ${stage.name}');
+    await _ble.setPoultryStage(stage);
+    await _logEvent(
+      EventCategory.system,
+      'Production stage set to ${stage.name}',
+    );
     await refreshNow();
   }
 
   Future<void> toggleActuator(ActuatorType type, bool isOn) async {
-    if (!canControl) return;
-    await _api.controlActuator(
+    if (!canControlActuators) return;
+    _simulation.setActuator(type, isOn);
+    await _ble.controlActuator(
       type,
       isOn,
-      manualOverride: true,
-      timeout: Duration(
-        minutes: settings.value.manualActuatorTimeoutMinutes,
-      ),
+      timeout: AppConstants.manualActuatorTimeout,
     );
     await _logEvent(
       EventCategory.actuator,
@@ -239,32 +302,33 @@ class TelemetryController extends GetxController {
     await refreshNow();
   }
 
-  Future<void> setSensorSource(SensorType sensor, DataSource source) async {
-    if (!canControl) return;
-    await _api.setSensorSource(sensor, source);
-    await _logEvent(
-      EventCategory.sensor,
-      '${sensor.name} data source set to ${source.name}',
-    );
-    await refreshNow();
-  }
-
   Future<void> saveSettings(AppSettings newSettings) async {
-    if (!canControl) return;
+    final previous = settings.value;
     settings.value = newSettings;
     await _storage.saveSettings(newSettings);
-    await _api.pushSettings(newSettings);
-    await _logEvent(EventCategory.system, 'System settings updated');
+
+    if (previous.useDemoDataWhenDisconnected !=
+            newSettings.useDemoDataWhenDisconnected &&
+        !isConnected) {
+      if (newSettings.useDemoDataWhenDisconnected) {
+        _startDemoFeedIfEnabled();
+      } else {
+        _demoTimer?.cancel();
+      }
+    }
+  }
+
+  /// Theme is a per-app preference, so viewers can change it too.
+  Future<void> setThemeMode(ThemeMode mode) async {
+    await saveSettings(settings.value.copyWith(themeMode: mode));
+    Get.changeThemeMode(mode);
   }
 
   Future<void> saveDevice(DeviceModel device) async {
     if (!canControl) return;
     await _storage.saveDevice(device);
     devices.assignAll(_storage.getDevices());
-    if (activeDevice.value?.id == device.id) {
-      activeDevice.value = device;
-      _api.setActiveDevice(device);
-    }
+    if (activeDevice.value?.id == device.id) activeDevice.value = device;
   }
 
   Future<void> deleteDevice(String id) async {
@@ -273,6 +337,7 @@ class TelemetryController extends GetxController {
     devices.assignAll(_storage.getDevices());
     if (activeDevice.value?.id == id) {
       activeDevice.value = devices.isNotEmpty ? devices.first : null;
+      await disconnectDevice();
     }
   }
 

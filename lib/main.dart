@@ -6,7 +6,7 @@ import 'app/bindings/initial_binding.dart';
 import 'core/constants/app_constants.dart';
 import 'core/services/local_storage_service.dart';
 import 'core/theme/app_theme.dart';
-import 'routes/app_pages.dart'; 
+import 'routes/app_pages.dart';
 import 'routes/app_routes.dart';
 
 Future<void> main() async {
@@ -17,11 +17,13 @@ Future<void> main() async {
   await storage.seedDefaultUsersIfEmpty();
   await storage.seedDefaultDeviceIfEmpty();
 
-  runApp(const PoultyApp());
+  runApp(PoultyApp(themeMode: storage.getSettings().themeMode));
 }
 
 class PoultyApp extends StatelessWidget {
-  const PoultyApp({super.key});
+  const PoultyApp({super.key, this.themeMode = ThemeMode.system});
+
+  final ThemeMode themeMode;
 
   @override
   Widget build(BuildContext context) {
@@ -34,6 +36,8 @@ class PoultyApp extends StatelessWidget {
           title: AppConstants.appName,
           debugShowCheckedModeBanner: false,
           theme: AppTheme.lightTheme,
+          darkTheme: AppTheme.darkTheme,
+          themeMode: themeMode,
           initialBinding: InitialBinding(),
           initialRoute: AppRoutes.login,
           getPages: AppPages.routes,

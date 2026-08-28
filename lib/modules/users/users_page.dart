@@ -35,7 +35,7 @@ class _UsersPageState extends State<UsersPage> {
             padding: const EdgeInsets.all(16),
             child: Text(
               'Administrators: $adminCount / ${AppConstants.maxAdmins}',
-              style: const TextStyle(color: AppTheme.textSecondary),
+              style: TextStyle(color: AppTheme.secondaryText(context)),
             ),
           ),
           Expanded(

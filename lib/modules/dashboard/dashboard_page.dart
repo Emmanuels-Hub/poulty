@@ -3,6 +3,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/constants/app_constants.dart';
 import '../../core/constants/enums.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/enum_labels.dart';
@@ -21,6 +22,8 @@ class DashboardPage extends StatelessWidget {
       if (snapshot == null) {
         return const Center(child: CircularProgressIndicator());
       }
+
+      final isManual = c.isManualModeActive;
 
       return RefreshIndicator(
         onRefresh: c.refreshNow,
@@ -43,7 +46,7 @@ class DashboardPage extends StatelessWidget {
                         Text(
                           'Updated ${DateFormat.Hms().format(snapshot.timestamp)}',
                           style: TextStyle(
-                            color: AppTheme.textSecondary,
+                            color: AppTheme.secondaryText(context),
                             fontSize: 12.sp,
                           ),
                         ),
@@ -66,6 +69,7 @@ class DashboardPage extends StatelessWidget {
                   StatusChip(
                     label: EnumLabels.operatingMode(snapshot.operatingMode),
                     color: AppTheme.infoBlue,
+                    icon: isManual ? Icons.pan_tool_alt : Icons.auto_mode,
                   ),
                   SizedBox(width: 8.w),
                   StatusChip(
@@ -77,30 +81,6 @@ class DashboardPage extends StatelessWidget {
                         ? Icons.wb_sunny
                         : Icons.nightlight_round,
                   ),
-                  SizedBox(width: 8.w),
-                  StatusChip(
-                    label:
-                        'Health ${c.systemHealthScore.value.toStringAsFixed(0)}%',
-                    color: c.systemHealthScore.value > 70
-                        ? AppTheme.successGreen
-                        : AppTheme.warningOrange,
-                  ),
-                  if (c.isOffline.value) ...[
-                    SizedBox(width: 8.w),
-                    const StatusChip(
-                      label: 'Cached Data',
-                      color: AppTheme.warningOrange,
-                      icon: Icons.offline_bolt,
-                    ),
-                  ],
-                  if (c.queuedCommands.value > 0) ...[
-                    SizedBox(width: 8.w),
-                    StatusChip(
-                      label: '${c.queuedCommands.value} queued',
-                      color: AppTheme.infoBlue,
-                      icon: Icons.sync,
-                    ),
-                  ],
                 ],
               ),
             ),
@@ -113,7 +93,7 @@ class DashboardPage extends StatelessWidget {
                 final w = MediaQuery.of(context).size.width;
                 if (w >= 600) return 1.6; // tablets / wide screens
                 if (w >= 400) return 1.4; // normal phones
-                return 1.2;              // small phones (< 400px)
+                return 1.2; // small phones (< 400px)
               }(),
               children: [
                 MetricCard(
@@ -131,11 +111,15 @@ class DashboardPage extends StatelessWidget {
                   color: AppTheme.infoBlue,
                 ),
                 MetricCard(
-                  title: 'Ammonia',
-                  value: snapshot.ammoniaPpm.toStringAsFixed(1),
-                  unit: 'ppm',
-                  icon: Icons.cloud,
-                  color: AppTheme.warningOrange,
+                  title: 'Air Purity',
+                  value: snapshot.airPurityPercent.toStringAsFixed(0),
+                  unit: '%',
+                  icon: Icons.air,
+                  color: snapshot.airPurityPercent <
+                          AppConstants.starterAirPurityMin
+                      ? AppTheme.criticalRed
+                      : AppTheme.successGreen,
+                  subtitle: _airPurityLabel(snapshot.airPurityPercent),
                 ),
                 MetricCard(
                   title: 'Feed Level',
@@ -151,16 +135,25 @@ class DashboardPage extends StatelessWidget {
                   icon: Icons.water,
                   color: AppTheme.infoBlue,
                 ),
-                MetricCard(
-                  title: 'Battery',
-                  value: snapshot.batteryPercent.toStringAsFixed(0),
-                  unit: '%',
-                  icon: Icons.battery_charging_full,
-                  color: AppTheme.successGreen,
-                ),
               ],
             ),
             const SectionHeader(title: 'Actuators'),
+            if (!isManual)
+              Card(
+                child: ListTile(
+                  leading: const Icon(
+                    Icons.lock_outline,
+                    color: AppTheme.infoBlue,
+                  ),
+                  title: const Text('Manual control is off'),
+                  subtitle: const Text(
+                    'Switch Operating Mode to Manual in Settings to control '
+                    'actuators by hand.',
+                  ),
+                  dense: true,
+                  textColor: AppTheme.secondaryText(context),
+                ),
+              ),
             ...ActuatorType.values.map((type) {
               final state = snapshot.actuator(type);
               return Card(
@@ -169,105 +162,44 @@ class DashboardPage extends StatelessWidget {
                     _actuatorIcon(type),
                     color: state.isOn
                         ? AppTheme.successGreen
-                        : AppTheme.textSecondary,
+                        : AppTheme.secondaryText(context),
                   ),
                   title: Text(EnumLabels.actuator(type)),
                   subtitle: Text(
                     state.hasFailure
                         ? 'Failure detected'
-                        : state.isManualOverride
-                        ? 'Manual override active'
+                        : isManual
+                        ? 'Manual control'
                         : 'Automatic control',
                   ),
                   trailing: Switch(
                     value: state.isOn,
-                    onChanged: c.canControl
+                    onChanged: c.canControlActuators
                         ? (v) => _confirmActuator(context, c, type, v)
                         : null,
                   ),
                 ),
               );
             }),
-            const SectionHeader(title: 'Recent Events'),
-            if (c.events.isEmpty)
-              const EmptyState(message: 'No events recorded yet')
-            else
-              ...c.events
-                  .take(5)
-                  .map(
-                    (e) => ListTile(
-                      dense: true,
-                      leading: Icon(_eventIcon(e.category), size: 20),
-                      title: Text(
-                        e.message,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      subtitle: Text(
-                        DateFormat.MMMd().add_Hm().format(e.timestamp),
-                      ),
-                    ),
-                  ),
-            const SectionHeader(title: 'Operating Statistics'),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  children: [
-                    _statRow('Uptime', '${c.uptimeHours.value} hours'),
-                    _statRow('WiFi Signal', '${snapshot.wifiRssi} dBm'),
-                    _statRow(
-                      'Ambient Light',
-                      '${snapshot.ambientLightLux.toStringAsFixed(0)} lux',
-                    ),
-                    _statRow(
-                      'Device',
-                      c.activeDevice.value?.name ?? 'Not configured',
-                    ),
-                  ],
-                ),
-              ),
-            ),
           ],
         ),
       );
     });
   }
 
-  Widget _statRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: const TextStyle(color: AppTheme.textSecondary)),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
-        ],
-      ),
-    );
+  String _airPurityLabel(double percent) {
+    if (percent >= 85) return 'Clean';
+    if (percent >= AppConstants.starterAirPurityMin) return 'Acceptable';
+    if (percent >= 40) return 'Poor';
+    return 'Hazardous';
   }
 
   IconData _actuatorIcon(ActuatorType type) {
     switch (type) {
       case ActuatorType.ventilationFan:
-        return Icons.air;
+        return Icons.wind_power;
       case ActuatorType.heatLamp:
         return Icons.whatshot;
-      case ActuatorType.lighting:
-        return Icons.lightbulb;
-    }
-  }
-
-  IconData _eventIcon(EventCategory category) {
-    switch (category) {
-      case EventCategory.alert:
-        return Icons.warning_amber;
-      case EventCategory.actuator:
-        return Icons.power_settings_new;
-      case EventCategory.network:
-        return Icons.wifi;
-      default:
-        return Icons.info_outline;
     }
   }
 
@@ -284,7 +216,7 @@ class DashboardPage extends StatelessWidget {
         content: Text(
           'Turn ${EnumLabels.actuator(type)} ${value ? 'ON' : 'OFF'}?\n\n'
           'Manual control will automatically revert after '
-          '${c.settings.value.manualActuatorTimeoutMinutes} minutes.',
+          '${AppConstants.manualActuatorTimeout.inMinutes} minutes.',
         ),
         actions: [
           TextButton(
