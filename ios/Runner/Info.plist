@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Poulty</string>
+	<string>Smart Poultry</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -66,5 +66,11 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Smart Poultry uses Bluetooth to connect to your ESP32 coop controller.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>Smart Poultry uses Bluetooth to connect to your ESP32 coop controller.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Smart Poultry uses your local network to show the coop camera live feed.</string>
 </dict>
 </plist>
