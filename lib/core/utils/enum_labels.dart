@@ -9,10 +9,6 @@ class EnumLabels {
         return 'Automatic';
       case OperatingMode.manual:
         return 'Manual';
-      case OperatingMode.simulation:
-        return 'Simulation';
-      case OperatingMode.hybrid:
-        return 'Hybrid';
     }
   }
 
@@ -20,10 +16,6 @@ class EnumLabels {
     switch (stage) {
       case PoultryStage.starter:
         return 'Starter';
-      case PoultryStage.grower:
-        return 'Grower';
-      case PoultryStage.finisher:
-        return 'Finisher';
     }
   }
 
@@ -33,8 +25,6 @@ class EnumLabels {
         return 'Ventilation Fan';
       case ActuatorType.heatLamp:
         return 'Heat Lamp';
-      case ActuatorType.lighting:
-        return 'Lighting';
     }
   }
 
@@ -44,29 +34,23 @@ class EnumLabels {
         return 'Temperature';
       case SensorType.humidity:
         return 'Humidity';
-      case SensorType.ammonia:
-        return 'Ammonia';
-      case SensorType.ambientLight:
-        return 'Ambient Light';
+      case SensorType.airPurity:
+        return 'Air Purity';
       case SensorType.feedLevel:
         return 'Feed Level';
       case SensorType.waterLevel:
         return 'Water Level';
-      case SensorType.battery:
-        return 'Battery';
     }
   }
 
   static String connectionStatus(DeviceConnectionStatus status) {
     switch (status) {
-      case DeviceConnectionStatus.online:
-        return 'Online (Internet)';
-      case DeviceConnectionStatus.local:
-        return 'Online (Local Network)';
-      case DeviceConnectionStatus.offline:
-        return 'Offline';
-      case DeviceConnectionStatus.reconnecting:
-        return 'Reconnecting';
+      case DeviceConnectionStatus.connected:
+        return 'Connected';
+      case DeviceConnectionStatus.connecting:
+        return 'Connecting';
+      case DeviceConnectionStatus.disconnected:
+        return 'Disconnected';
     }
   }
 

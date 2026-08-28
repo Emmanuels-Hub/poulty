@@ -1,46 +1,34 @@
 enum UserRole { admin, viewer }
 
-enum OperatingMode { automatic, manual, simulation, hybrid }
+enum OperatingMode { automatic, manual }
 
-enum PoultryStage { starter, grower, finisher }
+/// The system only runs the starter stage.
+enum PoultryStage { starter }
 
-enum ActuatorType { ventilationFan, heatLamp, lighting }
+enum ActuatorType { ventilationFan, heatLamp }
 
 enum SensorType {
   temperature,
   humidity,
-  ammonia,
-  ambientLight,
+  airPurity,
   feedLevel,
   waterLevel,
-  battery,
 }
 
 enum AlertType {
   abnormalTemperature,
   abnormalHumidity,
-  abnormalAmmonia,
+  poorAirPurity,
   lowFeed,
   lowWater,
-  lowBattery,
   actuatorFailure,
   systemRestart,
-  internetReconnected,
+  deviceReconnected,
   custom,
 }
 
 enum AlertSeverity { info, warning, critical }
 
-enum DeviceConnectionStatus { online, offline, local, reconnecting }
+enum DeviceConnectionStatus { connected, connecting, disconnected }
 
-enum DataSource { live, simulated }
-
-enum EventCategory {
-  system,
-  sensor,
-  actuator,
-  alert,
-  user,
-  network,
-  diagnostics,
-}
+enum EventCategory { system, sensor, actuator, alert, user, connection }

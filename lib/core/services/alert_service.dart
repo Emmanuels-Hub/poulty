@@ -1,9 +1,11 @@
 import 'package:uuid/uuid.dart';
 
-import '../../core/constants/enums.dart';
 import '../../data/models/event_model.dart';
 import '../../data/models/settings_model.dart';
 import '../../data/models/telemetry_model.dart';
+import '../constants/app_constants.dart';
+import '../constants/enums.dart';
+import '../utils/enum_labels.dart';
 import 'local_storage_service.dart';
 
 class AlertService {
@@ -18,87 +20,82 @@ class AlertService {
     TelemetrySnapshot snapshot,
     AppSettings settings,
   ) {
-    final thresholds = settings.thresholdsFor(snapshot.poultryStage);
+    final thresholds = settings.thresholds;
     final notifications = _storage.getNotifications();
-    final interval = Duration(minutes: settings.notificationIntervalMinutes);
+    const interval = AppConstants.notificationInterval;
 
-    _checkRangeAlert(
+    _check(
       notifications: notifications,
       type: AlertType.abnormalTemperature,
-      isAbnormal: snapshot.temperatureC < thresholds.tempMin ||
+      isTriggered: snapshot.temperatureC < thresholds.tempMin ||
           snapshot.temperatureC > thresholds.tempMax,
       severity: AlertSeverity.critical,
       title: 'Abnormal Temperature',
-      message:
-          'Temperature is ${snapshot.temperatureC.toStringAsFixed(1)}°C (range ${thresholds.tempMin}-${thresholds.tempMax}°C)',
+      message: 'Temperature is ${snapshot.temperatureC.toStringAsFixed(1)}°C '
+          '(target ${thresholds.tempMin.toStringAsFixed(0)}–'
+          '${thresholds.tempMax.toStringAsFixed(0)}°C)',
       interval: interval,
     );
 
-    _checkRangeAlert(
+    _check(
       notifications: notifications,
       type: AlertType.abnormalHumidity,
-      isAbnormal: snapshot.humidityPercent < thresholds.humidityMin ||
+      isTriggered: snapshot.humidityPercent < thresholds.humidityMin ||
           snapshot.humidityPercent > thresholds.humidityMax,
       severity: AlertSeverity.warning,
       title: 'Abnormal Humidity',
-      message:
-          'Humidity is ${snapshot.humidityPercent.toStringAsFixed(0)}% (range ${thresholds.humidityMin}-${thresholds.humidityMax}%)',
+      message: 'Humidity is ${snapshot.humidityPercent.toStringAsFixed(0)}% '
+          '(target ${thresholds.humidityMin.toStringAsFixed(0)}–'
+          '${thresholds.humidityMax.toStringAsFixed(0)}%)',
       interval: interval,
     );
 
-    _checkRangeAlert(
+    _check(
       notifications: notifications,
-      type: AlertType.abnormalAmmonia,
-      isAbnormal: snapshot.ammoniaPpm > thresholds.ammoniaMax,
+      type: AlertType.poorAirPurity,
+      isTriggered: snapshot.airPurityPercent < thresholds.airPurityMin,
       severity: AlertSeverity.critical,
-      title: 'High Ammonia Level',
-      message:
-          'Ammonia is ${snapshot.ammoniaPpm.toStringAsFixed(1)} ppm (max ${thresholds.ammoniaMax} ppm)',
+      title: 'Poor Air Purity',
+      message: 'Air purity is ${snapshot.airPurityPercent.toStringAsFixed(0)}% '
+          '(minimum ${thresholds.airPurityMin.toStringAsFixed(0)}%)',
       interval: interval,
     );
 
-    _checkThresholdAlert(
+    _check(
       notifications: notifications,
       type: AlertType.lowFeed,
-      isLow: snapshot.feedLevelPercent <= thresholds.feedLowThreshold,
+      isTriggered: snapshot.feedLevelPercent <= thresholds.feedLowThreshold,
       severity: AlertSeverity.warning,
       title: 'Low Feed Level',
       message: 'Feed level at ${snapshot.feedLevelPercent.toStringAsFixed(0)}%',
       interval: interval,
     );
 
-    _checkThresholdAlert(
+    _check(
       notifications: notifications,
       type: AlertType.lowWater,
-      isLow: snapshot.waterLevelPercent <= thresholds.waterLowThreshold,
+      isTriggered: snapshot.waterLevelPercent <= thresholds.waterLowThreshold,
       severity: AlertSeverity.warning,
       title: 'Low Water Level',
-      message: 'Water level at ${snapshot.waterLevelPercent.toStringAsFixed(0)}%',
+      message:
+          'Water level at ${snapshot.waterLevelPercent.toStringAsFixed(0)}%',
       interval: interval,
     );
 
-    _checkThresholdAlert(
+    final failed = snapshot.actuators
+        .where((a) => a.hasFailure)
+        .map((a) => EnumLabels.actuator(a.type))
+        .join(', ');
+
+    _check(
       notifications: notifications,
-      type: AlertType.lowBattery,
-      isLow: snapshot.batteryPercent <= settings.batteryLowThreshold,
+      type: AlertType.actuatorFailure,
+      isTriggered: failed.isNotEmpty,
       severity: AlertSeverity.critical,
-      title: 'Low Battery',
-      message: 'Battery at ${snapshot.batteryPercent.toStringAsFixed(0)}%',
+      title: 'Actuator Failure',
+      message: '$failed reported a failure',
       interval: interval,
     );
-
-    for (final actuator in snapshot.actuators) {
-      if (actuator.hasFailure) {
-        _raiseAlert(
-          notifications: notifications,
-          type: AlertType.actuatorFailure,
-          severity: AlertSeverity.critical,
-          title: 'Actuator Failure',
-          message: '${actuator.type.name} reported a failure',
-          interval: interval,
-        );
-      }
-    }
 
     _storage.saveNotifications(notifications);
     return notifications;
@@ -115,46 +112,23 @@ class AlertService {
 
   Future<void> notifyReconnected() async {
     await _addNotification(
-      type: AlertType.internetReconnected,
+      type: AlertType.deviceReconnected,
       severity: AlertSeverity.info,
-      title: 'Connection Restored',
-      message: 'Internet connection re-established. Syncing buffered data.',
+      title: 'Controller Connected',
+      message: 'Bluetooth link to the ESP32 controller re-established.',
     );
   }
 
-  void _checkRangeAlert({
+  void _check({
     required List<AppNotification> notifications,
     required AlertType type,
-    required bool isAbnormal,
+    required bool isTriggered,
     required AlertSeverity severity,
     required String title,
     required String message,
     required Duration interval,
   }) {
-    if (isAbnormal) {
-      _raiseAlert(
-        notifications: notifications,
-        type: type,
-        severity: severity,
-        title: title,
-        message: message,
-        interval: interval,
-      );
-    } else {
-      _clearAlert(notifications, type);
-    }
-  }
-
-  void _checkThresholdAlert({
-    required List<AppNotification> notifications,
-    required AlertType type,
-    required bool isLow,
-    required AlertSeverity severity,
-    required String title,
-    required String message,
-    required Duration interval,
-  }) {
-    if (isLow) {
+    if (isTriggered) {
       _raiseAlert(
         notifications: notifications,
         type: type,
