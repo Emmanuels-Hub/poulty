@@ -105,39 +105,3 @@ class AppNotification {
             : null,
       );
 }
-
-class QueuedCommand {
-  const QueuedCommand({
-    required this.id,
-    required this.endpoint,
-    required this.method,
-    required this.payload,
-    required this.createdAt,
-    this.description = '',
-  });
-
-  final String id;
-  final String endpoint;
-  final String method;
-  final Map<String, dynamic> payload;
-  final DateTime createdAt;
-  final String description;
-
-  Map<String, dynamic> toJson() => {
-        'id': id,
-        'endpoint': endpoint,
-        'method': method,
-        'payload': payload,
-        'createdAt': createdAt.toIso8601String(),
-        'description': description,
-      };
-
-  factory QueuedCommand.fromJson(Map<String, dynamic> json) => QueuedCommand(
-        id: json['id'] as String,
-        endpoint: json['endpoint'] as String,
-        method: json['method'] as String,
-        payload: Map<String, dynamic>.from(json['payload'] as Map),
-        createdAt: DateTime.parse(json['createdAt'] as String),
-        description: json['description'] as String? ?? '',
-      );
-}

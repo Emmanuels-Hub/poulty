@@ -25,7 +25,6 @@ class LocalStorageService {
   Box<dynamic>? _telemetryBox;
   Box<dynamic>? _eventsBox;
   Box<dynamic>? _notificationsBox;
-  Box<dynamic>? _commandQueueBox;
   Box<dynamic>? _usersBox;
   Box<dynamic>? _devicesBox;
 
@@ -35,7 +34,6 @@ class LocalStorageService {
     _telemetryBox = await Hive.openBox(AppConstants.hiveBoxTelemetry);
     _eventsBox = await Hive.openBox(AppConstants.hiveBoxEvents);
     _notificationsBox = await Hive.openBox(AppConstants.hiveBoxNotifications);
-    _commandQueueBox = await Hive.openBox(AppConstants.hiveBoxCommandQueue);
     _usersBox = await Hive.openBox(AppConstants.hiveBoxUsers);
     _devicesBox = await Hive.openBox(AppConstants.hiveBoxDevices);
   }
@@ -85,11 +83,7 @@ class LocalStorageService {
 
     final device = DeviceModel(
       id: _uuid.v4(),
-      name: 'Main Coop ESP32',
-      localIp: '192.168.1.100',
-      remoteUrl: 'https://your-esp32.example.com',
-      mqttBroker: 'mqtt.example.com',
-
+      name: 'Coop Controller',
       firmwareVersion: '1.0.0',
     );
     await _devicesBox!.put(device.id, device.toJson());
@@ -202,21 +196,6 @@ class LocalStorageService {
     await _notificationsBox!.put(
       'notifications',
       trimmed.map((e) => e.toJson()).toList(),
-    );
-  }
-
-  List<QueuedCommand> getQueuedCommands() {
-    final raw = _commandQueueBox!.get('queue');
-    if (raw == null) return [];
-    return (raw as List)
-        .map((e) => QueuedCommand.fromJson(Map<String, dynamic>.from(e as Map)))
-        .toList();
-  }
-
-  Future<void> saveQueuedCommands(List<QueuedCommand> commands) async {
-    await _commandQueueBox!.put(
-      'queue',
-      commands.map((e) => e.toJson()).toList(),
     );
   }
 

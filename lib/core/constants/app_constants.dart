@@ -52,7 +52,6 @@ class AppConstants {
   static const String hiveBoxTelemetry = 'telemetry';
   static const String hiveBoxEvents = 'events';
   static const String hiveBoxNotifications = 'notifications';
-  static const String hiveBoxCommandQueue = 'command_queue';
   static const String hiveBoxUsers = 'users';
   static const String hiveBoxDevices = 'devices';
 
