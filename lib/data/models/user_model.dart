@@ -1,4 +1,5 @@
 import '../../core/constants/enums.dart';
+import '../../core/utils/json_utils.dart';
 
 class UserModel {
   const UserModel({
@@ -56,7 +57,7 @@ class UserModel {
         username: json['username'] as String,
         displayName: json['displayName'] as String,
         passwordHash: json['passwordHash'] as String,
-        role: UserRole.values.byName(json['role'] as String),
+        role: enumByName(UserRole.values, json['role'], UserRole.viewer),
         createdAt: DateTime.parse(json['createdAt'] as String),
         isActive: json['isActive'] as bool? ?? true,
       );

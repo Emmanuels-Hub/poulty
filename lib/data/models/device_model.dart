@@ -1,4 +1,5 @@
 import '../../core/constants/enums.dart';
+import '../../core/utils/json_utils.dart';
 
 class DeviceModel {
   const DeviceModel({
@@ -68,9 +69,10 @@ class DeviceModel {
         lastSeen: json['lastSeen'] != null
             ? DateTime.parse(json['lastSeen'] as String)
             : null,
-        connectionStatus: DeviceConnectionStatus.values.firstWhere(
-          (s) => s.name == (json['connectionStatus'] as String? ?? ''),
-          orElse: () => DeviceConnectionStatus.disconnected,
+        connectionStatus: enumByName(
+          DeviceConnectionStatus.values,
+          json['connectionStatus'],
+          DeviceConnectionStatus.disconnected,
         ),
         firmwareVersion: json['firmwareVersion'] as String? ?? '1.0.0',
         species: json['species'] as String? ?? 'broiler',

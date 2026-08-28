@@ -1,4 +1,5 @@
 import '../../core/constants/enums.dart';
+import '../../core/utils/json_utils.dart';
 
 class SystemEvent {
   const SystemEvent({
@@ -26,7 +27,11 @@ class SystemEvent {
   factory SystemEvent.fromJson(Map<String, dynamic> json) => SystemEvent(
         id: json['id'] as String,
         timestamp: DateTime.parse(json['timestamp'] as String),
-        category: EventCategory.values.byName(json['category'] as String),
+        category: enumByName(
+          EventCategory.values,
+          json['category'],
+          EventCategory.system,
+        ),
         message: json['message'] as String,
         details: json['details'] as String?,
       );
@@ -93,8 +98,12 @@ class AppNotification {
 
   factory AppNotification.fromJson(Map<String, dynamic> json) => AppNotification(
         id: json['id'] as String,
-        type: AlertType.values.byName(json['type'] as String),
-        severity: AlertSeverity.values.byName(json['severity'] as String),
+        type: enumByName(AlertType.values, json['type'], AlertType.custom),
+        severity: enumByName(
+          AlertSeverity.values,
+          json['severity'],
+          AlertSeverity.info,
+        ),
         title: json['title'] as String,
         message: json['message'] as String,
         timestamp: DateTime.parse(json['timestamp'] as String),

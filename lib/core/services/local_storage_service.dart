@@ -96,7 +96,13 @@ class LocalStorageService {
       saveSettings(defaults);
       return defaults;
     }
-    return AppSettings.fromJson(Map<String, dynamic>.from(raw as Map));
+    try {
+      return AppSettings.fromJson(asJsonMap(raw));
+    } catch (_) {
+      final defaults = AppSettings.defaults();
+      saveSettings(defaults);
+      return defaults;
+    }
   }
 
   Future<void> saveSettings(AppSettings settings) async {
@@ -104,9 +110,10 @@ class LocalStorageService {
   }
 
   List<UserModel> getUsers() {
-    return _usersBox!.values
-        .map((e) => UserModel.fromJson(Map<String, dynamic>.from(e as Map)))
-        .toList();
+    return parseAll(
+      _usersBox!.values.map(asJsonMap).toList(),
+      UserModel.fromJson,
+    );
   }
 
   Future<void> saveUser(UserModel user) async {
@@ -118,9 +125,10 @@ class LocalStorageService {
   }
 
   List<DeviceModel> getDevices() {
-    return _devicesBox!.values
-        .map((e) => DeviceModel.fromJson(Map<String, dynamic>.from(e as Map)))
-        .toList();
+    return parseAll(
+      _devicesBox!.values.map(asJsonMap).toList(),
+      DeviceModel.fromJson,
+    );
   }
 
   Future<void> saveDevice(DeviceModel device) async {
@@ -146,13 +154,9 @@ class LocalStorageService {
   }
 
   List<TelemetryHistoryPoint> getHistory(String parameter) {
-    final key = 'history_$parameter';
-    final raw = _telemetryBox!.get(key);
+    final raw = _telemetryBox!.get('history_$parameter');
     if (raw == null) return [];
-    return (raw as List)
-        .map((e) =>
-            TelemetryHistoryPoint.fromJson(Map<String, dynamic>.from(e as Map)))
-        .toList();
+    return parseAll(asJsonMapList(raw), TelemetryHistoryPoint.fromJson);
   }
 
   Future<void> appendHistoryPoint(TelemetryHistoryPoint point) async {
@@ -168,9 +172,7 @@ class LocalStorageService {
   List<SystemEvent> getEvents() {
     final raw = _eventsBox!.get('events');
     if (raw == null) return [];
-    return (raw as List)
-        .map((e) => SystemEvent.fromJson(Map<String, dynamic>.from(e as Map)))
-        .toList();
+    return parseAll(asJsonMapList(raw), SystemEvent.fromJson);
   }
 
   Future<void> addEvent(SystemEvent event) async {
@@ -185,10 +187,7 @@ class LocalStorageService {
   List<AppNotification> getNotifications() {
     final raw = _notificationsBox!.get('notifications');
     if (raw == null) return [];
-    return (raw as List)
-        .map((e) =>
-            AppNotification.fromJson(Map<String, dynamic>.from(e as Map)))
-        .toList();
+    return parseAll(asJsonMapList(raw), AppNotification.fromJson);
   }
 
   Future<void> saveNotifications(List<AppNotification> notifications) async {

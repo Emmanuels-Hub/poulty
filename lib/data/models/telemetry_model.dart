@@ -41,7 +41,11 @@ class ActuatorState {
       };
 
   factory ActuatorState.fromJson(Map<String, dynamic> json) => ActuatorState(
-        type: ActuatorType.values.byName(json['type'] as String),
+        type: enumByName(
+          ActuatorType.values,
+          json['type'],
+          ActuatorType.ventilationFan,
+        ),
         isOn: json['isOn'] as bool? ?? false,
         isManualOverride: json['isManualOverride'] as bool? ?? false,
         manualExpiresAt: json['manualExpiresAt'] != null
@@ -142,10 +146,16 @@ class TelemetrySnapshot {
         feedLevelPercent: (json['feedLevelPercent'] as num?)?.toDouble() ?? 100,
         waterLevelPercent:
             (json['waterLevelPercent'] as num?)?.toDouble() ?? 100,
-        operatingMode: OperatingMode.values
-            .byName(json['operatingMode'] as String? ?? 'automatic'),
-        poultryStage: PoultryStage.values
-            .byName(json['poultryStage'] as String? ?? 'starter'),
+        operatingMode: enumByName(
+          OperatingMode.values,
+          json['operatingMode'],
+          OperatingMode.automatic,
+        ),
+        poultryStage: enumByName(
+          PoultryStage.values,
+          json['poultryStage'],
+          PoultryStage.starter,
+        ),
         actuators: asJsonMapList(json['actuators'])
             .map(ActuatorState.fromJson)
             .toList(),
