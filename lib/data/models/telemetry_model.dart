@@ -1,3 +1,4 @@
+import '../../core/constants/app_constants.dart';
 import '../../core/constants/enums.dart';
 import '../../core/utils/json_utils.dart';
 
@@ -61,7 +62,6 @@ class TelemetrySnapshot {
     this.temperatureC = 0,
     this.humidityPercent = 0,
     this.airPurityPercent = 100,
-    this.isDaytime = true,
     this.feedLevelPercent = 100,
     this.waterLevelPercent = 100,
     this.operatingMode = OperatingMode.automatic,
@@ -76,13 +76,18 @@ class TelemetrySnapshot {
 
   /// Air purity as a percentage from the gas sensor: 100% is clean air.
   final double airPurityPercent;
-  final bool isDaytime;
   final double feedLevelPercent;
   final double waterLevelPercent;
   final OperatingMode operatingMode;
   final PoultryStage poultryStage;
   final List<ActuatorState> actuators;
   final String deviceId;
+
+  /// Derived from the phone's clock: the controller has neither a light
+  /// sensor nor a real-time clock, so it cannot report this itself.
+  bool get isDaytime =>
+      timestamp.hour >= AppConstants.daytimeStartHour &&
+      timestamp.hour < AppConstants.daytimeEndHour;
 
   ActuatorState actuator(ActuatorType type) {
     return actuators.firstWhere(
@@ -96,7 +101,6 @@ class TelemetrySnapshot {
     double? temperatureC,
     double? humidityPercent,
     double? airPurityPercent,
-    bool? isDaytime,
     double? feedLevelPercent,
     double? waterLevelPercent,
     OperatingMode? operatingMode,
@@ -109,7 +113,6 @@ class TelemetrySnapshot {
       temperatureC: temperatureC ?? this.temperatureC,
       humidityPercent: humidityPercent ?? this.humidityPercent,
       airPurityPercent: airPurityPercent ?? this.airPurityPercent,
-      isDaytime: isDaytime ?? this.isDaytime,
       feedLevelPercent: feedLevelPercent ?? this.feedLevelPercent,
       waterLevelPercent: waterLevelPercent ?? this.waterLevelPercent,
       operatingMode: operatingMode ?? this.operatingMode,
@@ -124,7 +127,6 @@ class TelemetrySnapshot {
         'temperatureC': temperatureC,
         'humidityPercent': humidityPercent,
         'airPurityPercent': airPurityPercent,
-        'isDaytime': isDaytime,
         'feedLevelPercent': feedLevelPercent,
         'waterLevelPercent': waterLevelPercent,
         'operatingMode': operatingMode.name,
@@ -142,7 +144,6 @@ class TelemetrySnapshot {
         humidityPercent: (json['humidityPercent'] as num?)?.toDouble() ?? 0,
         airPurityPercent:
             (json['airPurityPercent'] as num?)?.toDouble() ?? 100,
-        isDaytime: json['isDaytime'] as bool? ?? true,
         feedLevelPercent: (json['feedLevelPercent'] as num?)?.toDouble() ?? 100,
         waterLevelPercent:
             (json['waterLevelPercent'] as num?)?.toDouble() ?? 100,

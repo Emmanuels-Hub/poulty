@@ -43,7 +43,6 @@ class Esp32BleService {
   StreamSubscription<List<ScanResult>>? _scanSub;
 
   DeviceConnectionStatus _status = DeviceConnectionStatus.disconnected;
-  DateTime? _lastFrameAt;
   String _buffer = '';
 
   Stream<TelemetrySnapshot> get telemetry => _telemetryController.stream;
@@ -53,14 +52,6 @@ class Esp32BleService {
 
   DeviceConnectionStatus get connectionStatus => _status;
   bool get isConnected => _status == DeviceConnectionStatus.connected;
-
-  /// True when connected but no frame has arrived recently.
-  bool get isTelemetryStale {
-    final last = _lastFrameAt;
-    if (last == null) return true;
-    return DateTime.now().difference(last) >
-        AppConstants.bleStaleTelemetryTimeout;
-  }
 
   Future<bool> get isSupported => FlutterBluePlus.isSupported;
 
@@ -210,7 +201,6 @@ class Esp32BleService {
       final snapshot = TelemetrySnapshot.fromJson(
         asJsonMap(jsonDecode(line)),
       );
-      _lastFrameAt = DateTime.now();
       _telemetryController.add(snapshot);
     } catch (_) {
       // Ignore malformed frames rather than dropping the connection.
@@ -255,7 +245,6 @@ class Esp32BleService {
   void _setStatus(DeviceConnectionStatus status) {
     if (_status == status) return;
     _status = status;
-    if (status != DeviceConnectionStatus.connected) _lastFrameAt = null;
     _statusController.add(status);
   }
 

@@ -22,15 +22,34 @@ class AppConstants {
 
   // --- Starter stage environmental targets ---------------------------------
   // The system runs the starter stage only, so these are fixed.
+  //
+  // These mirror the thresholds in esp/esp.ino exactly. If you change one
+  // side, change the other: the firmware controls the actuators from its
+  // copy, and the app raises alerts from this one.
+  //
+  // The comfort band sits between the warning limits; crossing a critical
+  // limit escalates the alert severity.
   static const double starterTempMin = 32;
   static const double starterTempMax = 35;
+  static const double starterTempCriticalMin = 30;
+  static const double starterTempCriticalMax = 37;
+
   static const double starterHumidityMin = 50;
   static const double starterHumidityMax = 70;
+  static const double starterHumidityCriticalMin = 40;
+  static const double starterHumidityCriticalMax = 80;
 
   /// Air purity is reported as a percentage; higher is cleaner air.
   static const double starterAirPurityMin = 60;
+  static const double starterAirPurityCriticalMin = 40;
+
   static const double starterFeedLowThreshold = 20;
-  static const double starterWaterLowThreshold = 15;
+  static const double starterWaterLowThreshold = 20;
+
+  /// The controller has no light sensor or clock, so day/night is derived
+  /// from the phone instead of the telemetry frame.
+  static const int daytimeStartHour = 6;
+  static const int daytimeEndHour = 18;
 
   // --- BLE (ESP32) ---------------------------------------------------------
   /// Nordic UART style service exposed by the ESP32 firmware.
@@ -46,7 +65,6 @@ class AppConstants {
 
   static const String bleDeviceNamePrefix = 'SmartPoultry';
   static const Duration bleScanTimeout = Duration(seconds: 10);
-  static const Duration bleStaleTelemetryTimeout = Duration(seconds: 20);
 
   static const String hiveBoxSettings = 'settings';
   static const String hiveBoxTelemetry = 'telemetry';

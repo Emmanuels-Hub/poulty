@@ -66,6 +66,20 @@ lib/
 
 ## ESP32 Integration (Bluetooth Low Energy)
 
+Firmware lives in [`esp/esp.ino`](esp/esp.ino) and targets an ESP32-WROOM-32.
+
+| Component | Pin(s) | Provides |
+|---|---|---|
+| DHT22 | GPIO 4 | temperature, humidity |
+| MQ-135 gas sensor | GPIO 34 (ADC) | air purity |
+| HX711 + load cell | GPIO 16 / 17 | feed level |
+| HX711 + load cell | GPIO 18 / 19 | water level |
+| Ventilation fan | GPIO 25 | cooling, air exchange |
+| Heat lamp | GPIO 26 | brooding heat |
+
+Arduino libraries: **DHT sensor library** (Adafruit) and **HX711** (bogde). BLE
+comes from the ESP32 Arduino core, so there is nothing extra to install.
+
 The app talks to the controller over BLE using a Nordic-UART style service.
 Pair from **Settings → ESP32 Connection**; the app lists devices advertising the
 service UUID or a name containing `SmartPoultry`.
@@ -83,11 +97,9 @@ across notifications.
 
 ```json
 {
-  "timestamp": "2026-08-28T14:30:00.000Z",
   "temperatureC": 33.2,
   "humidityPercent": 62.0,
   "airPurityPercent": 88.0,
-  "isDaytime": true,
   "feedLevelPercent": 78.0,
   "waterLevelPercent": 85.0,
   "operatingMode": "automatic",
@@ -101,7 +113,12 @@ across notifications.
 ```
 
 Every field is optional — a missing or unrecognised value falls back to a safe
-default rather than dropping the frame.
+default rather than dropping the frame. Two fields are deliberately absent:
+
+- **`timestamp`** — the ESP32 has no RTC, so the app stamps each frame with the
+  phone's clock on arrival.
+- **`isDaytime`** — there is no light sensor on the board, so the app derives
+  day/night from the phone clock (06:00–18:00) instead.
 
 ### Command frames (app → ESP32)
 
@@ -115,14 +132,36 @@ default rather than dropping the frame.
 
 The gas sensor reports a raw 12-bit ADC value where **higher means dirtier air**,
 while the app expects `airPurityPercent` where **higher means cleaner**. The
-firmware should invert and scale it, e.g.:
+firmware inverts it against two calibration points:
 
 ```c
-float airPurityPercent = 100.0 - (rawAdc / 4095.0) * 100.0;
+#define GAS_CLEAN_ADC 400.0    // reading in known-good air   -> 100%
+#define GAS_FOUL_ADC  3200.0   // reading in badly fouled air ->   0%
+
+float purity = 100.0 - ((raw - GAS_CLEAN_ADC) / (GAS_FOUL_ADC - GAS_CLEAN_ADC)) * 100.0;
 ```
 
-Using `GAS_NORMAL_LIMIT` (1500) as the comfort ceiling puts normal air at roughly
-63% purity or better, which sits above the app's 60% alert threshold.
+**Calibrate these to your own coop**: watch the Serial monitor (the status block
+prints the raw ADC alongside the purity) in fresh air and in a dirty pen, then
+set the two constants accordingly. The MQ-135 heater also needs ~20 s to settle
+after power-up; readings before that are not trustworthy.
+
+### Shared thresholds
+
+The comfort bands live in **both** `esp/esp.ino` and `lib/core/constants/app_constants.dart`
+and must be kept identical — the firmware drives the relays from its copy, the
+app raises alerts from its own.
+
+| Reading | Warning band | Critical band |
+|---|---|---|
+| Temperature | 32–35 °C | below 30 / above 37 °C |
+| Humidity | 50–70 % | below 40 / above 80 % |
+| Air purity | at or above 60 % | below 40 % |
+| Feed level | at or above 20 % | — |
+| Water level | at or above 20 % | — |
+
+Automatic control uses a 0.5 °C / 3 % deadband so the relays do not chatter, and
+the heat and fan bands do not overlap, so the two actuators never fight.
 
 ### Live camera feed
 

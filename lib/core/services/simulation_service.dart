@@ -11,12 +11,11 @@ class SimulationService {
   SimulationService();
 
   final _random = Random();
-  double _tempBase = 33.0;
+  double _tempBase = 33.5;
   double _humidityBase = 62;
   double _airPurityBase = 88;
   double _feedLevel = 78;
   double _waterLevel = 85;
-  bool _isDaytime = true;
   OperatingMode _mode = OperatingMode.automatic;
   final Map<ActuatorType, bool> _actuators = {
     ActuatorType.ventilationFan: false,
@@ -44,7 +43,6 @@ class SimulationService {
       temperatureC: _jitter(_tempBase, 0.4),
       humidityPercent: _jitter(_humidityBase, 1.2),
       airPurityPercent: _jitter(_airPurityBase, 1.5).clamp(0, 100),
-      isDaytime: _isDaytime,
       feedLevelPercent: _feedLevel,
       waterLevelPercent: _waterLevel,
       operatingMode: _mode,
@@ -72,9 +70,6 @@ class SimulationService {
         (_airPurityBase + (_random.nextDouble() - 0.5) * 1.2).clamp(35, 100);
     _feedLevel = (_feedLevel - 0.05).clamp(0, 100);
     _waterLevel = (_waterLevel - 0.03).clamp(0, 100);
-
-    final hour = DateTime.now().hour;
-    _isDaytime = hour >= 6 && hour < 20;
 
     if (_tick % 60 == 0 && _random.nextBool()) {
       _tempBase += _random.nextBool() ? 2 : -2;

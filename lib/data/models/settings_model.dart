@@ -5,14 +5,23 @@ import '../../core/constants/enums.dart';
 
 /// Fixed environmental targets. The system runs the starter stage only, so
 /// these are not user-editable.
+///
+/// The comfort band is [tempMin]..[tempMax]; readings outside the critical
+/// bounds escalate an alert from warning to critical. These mirror the
+/// thresholds compiled into esp/esp.ino.
 class StageThresholds {
   const StageThresholds({
     this.stage = PoultryStage.starter,
     this.tempMin = AppConstants.starterTempMin,
     this.tempMax = AppConstants.starterTempMax,
+    this.tempCriticalMin = AppConstants.starterTempCriticalMin,
+    this.tempCriticalMax = AppConstants.starterTempCriticalMax,
     this.humidityMin = AppConstants.starterHumidityMin,
     this.humidityMax = AppConstants.starterHumidityMax,
+    this.humidityCriticalMin = AppConstants.starterHumidityCriticalMin,
+    this.humidityCriticalMax = AppConstants.starterHumidityCriticalMax,
     this.airPurityMin = AppConstants.starterAirPurityMin,
+    this.airPurityCriticalMin = AppConstants.starterAirPurityCriticalMin,
     this.feedLowThreshold = AppConstants.starterFeedLowThreshold,
     this.waterLowThreshold = AppConstants.starterWaterLowThreshold,
   });
@@ -22,9 +31,14 @@ class StageThresholds {
   final PoultryStage stage;
   final double tempMin;
   final double tempMax;
+  final double tempCriticalMin;
+  final double tempCriticalMax;
   final double humidityMin;
   final double humidityMax;
+  final double humidityCriticalMin;
+  final double humidityCriticalMax;
   final double airPurityMin;
+  final double airPurityCriticalMin;
   final double feedLowThreshold;
   final double waterLowThreshold;
 }

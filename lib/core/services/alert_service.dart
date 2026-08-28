@@ -20,52 +20,64 @@ class AlertService {
     TelemetrySnapshot snapshot,
     AppSettings settings,
   ) {
-    final thresholds = settings.thresholds;
+    final t = settings.thresholds;
     final notifications = _storage.getNotifications();
     const interval = AppConstants.notificationInterval;
 
     _check(
       notifications: notifications,
       type: AlertType.abnormalTemperature,
-      isTriggered: snapshot.temperatureC < thresholds.tempMin ||
-          snapshot.temperatureC > thresholds.tempMax,
-      severity: AlertSeverity.critical,
+      severity: _bandSeverity(
+        snapshot.temperatureC,
+        warnLow: t.tempMin,
+        warnHigh: t.tempMax,
+        critLow: t.tempCriticalMin,
+        critHigh: t.tempCriticalMax,
+      ),
       title: 'Abnormal Temperature',
       message: 'Temperature is ${snapshot.temperatureC.toStringAsFixed(1)}°C '
-          '(target ${thresholds.tempMin.toStringAsFixed(0)}–'
-          '${thresholds.tempMax.toStringAsFixed(0)}°C)',
+          '(target ${t.tempMin.toStringAsFixed(0)}–'
+          '${t.tempMax.toStringAsFixed(0)}°C)',
       interval: interval,
     );
 
     _check(
       notifications: notifications,
       type: AlertType.abnormalHumidity,
-      isTriggered: snapshot.humidityPercent < thresholds.humidityMin ||
-          snapshot.humidityPercent > thresholds.humidityMax,
-      severity: AlertSeverity.warning,
+      severity: _bandSeverity(
+        snapshot.humidityPercent,
+        warnLow: t.humidityMin,
+        warnHigh: t.humidityMax,
+        critLow: t.humidityCriticalMin,
+        critHigh: t.humidityCriticalMax,
+      ),
       title: 'Abnormal Humidity',
       message: 'Humidity is ${snapshot.humidityPercent.toStringAsFixed(0)}% '
-          '(target ${thresholds.humidityMin.toStringAsFixed(0)}–'
-          '${thresholds.humidityMax.toStringAsFixed(0)}%)',
+          '(target ${t.humidityMin.toStringAsFixed(0)}–'
+          '${t.humidityMax.toStringAsFixed(0)}%)',
       interval: interval,
     );
 
     _check(
       notifications: notifications,
       type: AlertType.poorAirPurity,
-      isTriggered: snapshot.airPurityPercent < thresholds.airPurityMin,
-      severity: AlertSeverity.critical,
+      severity: _floorSeverity(
+        snapshot.airPurityPercent,
+        warn: t.airPurityMin,
+        critical: t.airPurityCriticalMin,
+      ),
       title: 'Poor Air Purity',
       message: 'Air purity is ${snapshot.airPurityPercent.toStringAsFixed(0)}% '
-          '(minimum ${thresholds.airPurityMin.toStringAsFixed(0)}%)',
+          '(minimum ${t.airPurityMin.toStringAsFixed(0)}%)',
       interval: interval,
     );
 
     _check(
       notifications: notifications,
       type: AlertType.lowFeed,
-      isTriggered: snapshot.feedLevelPercent <= thresholds.feedLowThreshold,
-      severity: AlertSeverity.warning,
+      severity: snapshot.feedLevelPercent <= t.feedLowThreshold
+          ? AlertSeverity.warning
+          : null,
       title: 'Low Feed Level',
       message: 'Feed level at ${snapshot.feedLevelPercent.toStringAsFixed(0)}%',
       interval: interval,
@@ -74,8 +86,9 @@ class AlertService {
     _check(
       notifications: notifications,
       type: AlertType.lowWater,
-      isTriggered: snapshot.waterLevelPercent <= thresholds.waterLowThreshold,
-      severity: AlertSeverity.warning,
+      severity: snapshot.waterLevelPercent <= t.waterLowThreshold
+          ? AlertSeverity.warning
+          : null,
       title: 'Low Water Level',
       message:
           'Water level at ${snapshot.waterLevelPercent.toStringAsFixed(0)}%',
@@ -90,8 +103,7 @@ class AlertService {
     _check(
       notifications: notifications,
       type: AlertType.actuatorFailure,
-      isTriggered: failed.isNotEmpty,
-      severity: AlertSeverity.critical,
+      severity: failed.isEmpty ? null : AlertSeverity.critical,
       title: 'Actuator Failure',
       message: '$failed reported a failure',
       interval: interval,
@@ -99,6 +111,31 @@ class AlertService {
 
     _storage.saveNotifications(notifications);
     return notifications;
+  }
+
+  /// Severity for a reading that should sit inside a band. Returns null when
+  /// the reading is comfortable.
+  AlertSeverity? _bandSeverity(
+    double value, {
+    required double warnLow,
+    required double warnHigh,
+    required double critLow,
+    required double critHigh,
+  }) {
+    if (value < critLow || value > critHigh) return AlertSeverity.critical;
+    if (value < warnLow || value > warnHigh) return AlertSeverity.warning;
+    return null;
+  }
+
+  /// Severity for a reading that should stay above a floor.
+  AlertSeverity? _floorSeverity(
+    double value, {
+    required double warn,
+    required double critical,
+  }) {
+    if (value < critical) return AlertSeverity.critical;
+    if (value < warn) return AlertSeverity.warning;
+    return null;
   }
 
   Future<void> notifySystemRestart() async {
@@ -122,24 +159,24 @@ class AlertService {
   void _check({
     required List<AppNotification> notifications,
     required AlertType type,
-    required bool isTriggered,
-    required AlertSeverity severity,
+    required AlertSeverity? severity,
     required String title,
     required String message,
     required Duration interval,
   }) {
-    if (isTriggered) {
-      _raiseAlert(
-        notifications: notifications,
-        type: type,
-        severity: severity,
-        title: title,
-        message: message,
-        interval: interval,
-      );
-    } else {
+    if (severity == null) {
       _clearAlert(notifications, type);
+      return;
     }
+
+    _raiseAlert(
+      notifications: notifications,
+      type: type,
+      severity: severity,
+      title: title,
+      message: message,
+      interval: interval,
+    );
   }
 
   void _raiseAlert({
