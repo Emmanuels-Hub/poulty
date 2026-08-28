@@ -106,7 +106,7 @@ class _UsersPageState extends State<UsersPage> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<UserRole>(
-                  value: role,
+                  initialValue: role,
                   decoration: const InputDecoration(labelText: 'Role'),
                   items: UserRole.values
                       .map(

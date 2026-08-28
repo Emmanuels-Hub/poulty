@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../core/theme/app_theme.dart';
 
@@ -53,7 +52,7 @@ class MetricCard extends StatelessWidget {
                       child: Icon(icon, color: accent, size: iconSize),
                     ),
                     const Spacer(),
-                    if (trailing != null) trailing!,
+                    ?trailing,
                   ],
                 ),
                 SizedBox(height: gapHeight),
