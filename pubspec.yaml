@@ -4,31 +4,45 @@ publish_to: 'none'
 version: 1.0.0+1
 
 environment:
-  sdk: ^3.11.5
+  sdk: ^3.10.0
 
 dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.8
   get: ^4.7.2
-  dio: ^5.8.0+1
   hive: ^2.2.3
   hive_flutter: ^1.1.0
   flutter_secure_storage: ^9.2.4
-  connectivity_plus: ^6.1.4
   fl_chart: ^0.70.2
   intl: ^0.20.2
   crypto: ^3.0.6
   uuid: ^4.5.1
-  mqtt_client: ^10.5.1
-  web_socket_channel: ^3.0.2
   flutter_screenutil: ^5.9.3
   flutter_mjpeg: ^2.0.4
+  flutter_blue_plus: ^1.35.5
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.3
+  image: ^4.3.0
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/
+
+flutter_launcher_icons:
+  android: "ic_launcher"
+  ios: true
+  image_path: "assets/app_icon.png"
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "assets/app_icon_foreground.png"
+  remove_alpha_ios: true
+  web:
+    generate: true
+    image_path: "assets/app_icon.png"
+    background_color: "#FFFFFF"
+    theme_color: "#2E7D32"
