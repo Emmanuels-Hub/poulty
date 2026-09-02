@@ -278,6 +278,21 @@ class AlertService {
     _pendingNotifications.add(notifications.first);
   }
 
+  /// Drops every standing alert.
+  ///
+  /// Called when telemetry stops: a condition that can no longer be observed
+  /// should not keep alerting, and its notification should be withdrawn.
+  Future<void> deactivateAll() async {
+    if (_activeAlerts.isEmpty) return;
+
+    final notifications = _storage.getNotifications();
+    for (final type in _activeAlerts.toList()) {
+      _clearAlert(notifications, type);
+    }
+    _lastAlertAt.clear();
+    await _storage.saveNotifications(notifications);
+  }
+
   Future<void> markRead(String id) async {
     final notifications = _storage.getNotifications();
     for (var i = 0; i < notifications.length; i++) {

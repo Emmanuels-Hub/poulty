@@ -29,19 +29,20 @@ class HistoryPage extends StatelessWidget {
             tooltip: 'Export CSV',
             onPressed: () => _export(context, c),
           ),
-          Obx(
-            () => c.canControl
-                ? IconButton(
-                    icon: const Icon(Icons.delete_outline),
-                    tooltip: 'Clear history',
-                    onPressed: () => _confirmClear(context, c),
-                  )
-                : const SizedBox.shrink(),
-          ),
+          // Not wrapped in Obx: canControl reads the signed-in user's role,
+          // which is not observable and cannot change while this page is open.
+          if (c.canControl)
+            IconButton(
+              icon: const Icon(Icons.delete_outline),
+              tooltip: 'Clear history',
+              onPressed: () => _confirmClear(context, c),
+            ),
         ],
       ),
       body: Obx(() {
-        // Rebuilds whenever a new point is logged.
+        // HistoryService is not itself observable, so the controller bumps
+        // this counter on every commit. Reading it here is what subscribes
+        // this builder to new points being logged.
         c.historyRevision.value;
 
         final history = c.history;

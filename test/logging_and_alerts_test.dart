@@ -104,11 +104,14 @@ void main() {
 
       final lines = history.toCsv().trim().split('\n');
       final expectedHeader =
-          'timestamp,${historyParameters.map((p) => p.csvColumn).join(',')}';
+          'timestamp,${historyParameters.map((p) => p.csvColumn).join(',')}'
+          ',simulated';
 
       expect(lines.first, expectedHeader);
       expect(lines, hasLength(2));
-      expect(lines[1].split(',').length, historyParameters.length + 1);
+
+      // timestamp + one column per parameter + the simulated flag
+      expect(lines[1].split(',').length, historyParameters.length + 2);
       expect(lines[1], contains('33.0'));
     });
 

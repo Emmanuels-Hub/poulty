@@ -25,12 +25,51 @@ class DashboardPage extends StatelessWidget {
       }
 
       final isManual = c.isManualModeActive;
+      final hasData = c.hasLiveData.value;
 
       return RefreshIndicator(
         onRefresh: c.refreshNow,
         child: ListView(
           padding: const EdgeInsets.only(bottom: 24),
           children: [
+            // Without this, zeros read as measurements rather than as the
+            // absence of one.
+            if (!hasData)
+              Container(
+                margin: EdgeInsets.fromLTRB(16.w, 16.h, 16.w, 0),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppTheme.infoBlue.withValues(alpha: 0.10),
+                  border: Border.all(
+                    color: AppTheme.infoBlue.withValues(alpha: 0.35),
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.sensors_off,
+                      size: 18,
+                      color: AppTheme.infoBlue,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        snapshot.simulationMode
+                            ? 'Simulated readings — no controller connected, '
+                                  'so nothing is being logged.'
+                            : 'No readings. Connect the controller in '
+                                  'Settings; values show zero until then.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: AppTheme.infoBlue,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             Padding(
               padding: EdgeInsets.fromLTRB(16.w, 16.h, 16.w, 0),
               child: Row(

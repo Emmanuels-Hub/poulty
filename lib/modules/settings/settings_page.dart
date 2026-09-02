@@ -173,7 +173,9 @@ class SettingsPage extends StatelessWidget {
                 SwitchListTile(
                   title: const Text('Demo data when disconnected'),
                   subtitle: const Text(
-                    'Show generated readings while no controller is linked',
+                    'Off: readings show zero until the controller is linked. '
+                    'On: generated values are shown instead. Either way '
+                    'nothing generated is logged or alerted on.',
                   ),
                   value: settings.useDemoDataWhenDisconnected,
                   onChanged: canControl

@@ -60,6 +60,11 @@ class TelemetryController extends GetxController {
   final RxBool isScanning = false.obs;
   final RxBool isMonitoring = false.obs;
 
+  /// False when nothing is being received. The dashboard then shows zeros,
+  /// and nothing is logged or alerted on, because zero means "no reading"
+  /// rather than "a reading of zero".
+  final RxBool hasLiveData = false.obs;
+
   /// Bumped whenever a new history point is logged, so charts rebuild without
   /// the controller having to mirror every series into an RxList.
   final RxInt historyRevision = 0.obs;
@@ -102,6 +107,9 @@ class TelemetryController extends GetxController {
   @override
   void onInit() {
     super.onInit();
+    // Start at zeros rather than the last cached snapshot, so stale readings
+    // are never presented as current.
+    current.value = TelemetrySnapshot.noData();
     _loadCachedData();
     _bindBleStreams();
   }
@@ -118,7 +126,8 @@ class TelemetryController extends GetxController {
   }
 
   void _bindBleStreams() {
-    _telemetrySub = _ble.telemetry.listen(_ingest);
+    _telemetrySub =
+        _ble.telemetry.listen((s) => _ingest(s, fromDevice: true));
 
     _statusSub = _ble.connectionStatusStream.listen((status) async {
       final wasDisconnected =
@@ -134,7 +143,7 @@ class TelemetryController extends GetxController {
         }
       } else if (status == DeviceConnectionStatus.disconnected) {
         await _logEvent(EventCategory.connection, 'Controller disconnected');
-        _startDemoFeedIfEnabled();
+        _resumeOfflineFeed();
       }
     });
 
@@ -159,7 +168,7 @@ class TelemetryController extends GetxController {
     if (device != null && device.isPaired) {
       await connectToDevice(device);
     } else {
-      _startDemoFeedIfEnabled();
+      _resumeOfflineFeed();
     }
   }
 
@@ -171,7 +180,9 @@ class TelemetryController extends GetxController {
   }
 
   Future<void> refreshNow() async {
-    if (!isConnected) _emitDemoSnapshot();
+    // While connected the notify stream drives updates; there is nothing to
+    // pull. Offline, re-evaluate what should be on screen.
+    if (!isConnected) _resumeOfflineFeed();
   }
 
   // --- BLE pairing ---------------------------------------------------------
@@ -215,7 +226,7 @@ class TelemetryController extends GetxController {
     final connected = await _ble.connect(device);
     if (!connected) {
       connectionStatus.value = DeviceConnectionStatus.disconnected;
-      _startDemoFeedIfEnabled();
+      _resumeOfflineFeed();
     }
     return connected;
   }
@@ -224,8 +235,18 @@ class TelemetryController extends GetxController {
 
   // --- Telemetry -----------------------------------------------------------
 
-  void _ingest(TelemetrySnapshot snapshot) {
+  /// Takes in a snapshot.
+  ///
+  /// [fromDevice] separates a real frame from one this phone generated. Only
+  /// real frames are logged or alerted on: a demo or offline-simulation
+  /// reading is shown on screen but must never end up in the dataset the farm
+  /// relies on, or raise an alert about a coop nobody is measuring.
+  void _ingest(TelemetrySnapshot snapshot, {required bool fromDevice}) {
+    hasLiveData.value = fromDevice;
     current.value = snapshot;
+
+    if (!fromDevice) return;
+
     _storage.saveLatestTelemetry(snapshot);
 
     if (_history.record(snapshot)) {
@@ -248,31 +269,64 @@ class TelemetryController extends GetxController {
     }
   }
 
-  void _startDemoFeedIfEnabled() {
+  /// Decides what to show while no controller is connected.
+  ///
+  /// An explicitly started simulation keeps running without hardware. The
+  /// passive demo feed only runs if it has been switched on in Settings.
+  /// Otherwise the dashboard shows zeros.
+  void _resumeOfflineFeed() {
     _demoTimer?.cancel();
     if (!isMonitoring.value) return;
-    if (!settings.value.useDemoDataWhenDisconnected) return;
+
+    final wantsFeed = _simulation.isSimulationActive ||
+        settings.value.useDemoDataWhenDisconnected;
+
+    if (!wantsFeed) {
+      _showNoData();
+      return;
+    }
 
     _emitDemoSnapshot();
     _demoTimer = Timer.periodic(AppConstants.telemetryPollInterval, (_) {
-      if (isConnected || !settings.value.useDemoDataWhenDisconnected) {
+      if (isConnected) {
         _demoTimer?.cancel();
+        return;
+      }
+      if (!_simulation.isSimulationActive &&
+          !settings.value.useDemoDataWhenDisconnected) {
+        _demoTimer?.cancel();
+        _showNoData();
         return;
       }
       _emitDemoSnapshot();
     });
   }
 
+  /// Shows zeros and stands down the alerting.
+  ///
+  /// A condition that can no longer be observed must not keep alerting, and
+  /// zeros must never be logged or evaluated as if they were measurements.
+  Future<void> _showNoData() async {
+    hasLiveData.value = false;
+    current.value = TelemetrySnapshot.noData();
+
+    await _alerts.deactivateAll();
+    notifications.assignAll(_storage.getNotifications());
+    _pushOsNotifications();
+  }
+
   void _emitDemoSnapshot() {
-    if (!settings.value.useDemoDataWhenDisconnected) return;
+    if (!_simulation.isSimulationActive &&
+        !settings.value.useDemoDataWhenDisconnected) {
+      return;
+    }
     _ingest(
       _simulation.generate(device: activeDevice.value, settings: settings.value),
+      fromDevice: false,
     );
   }
 
   void _loadCachedData() {
-    final cached = _storage.getLatestTelemetry();
-    if (cached != null) current.value = cached;
     settings.value = _storage.getSettings();
     events.assignAll(_storage.getEvents());
     notifications.assignAll(_storage.getNotifications());
@@ -359,6 +413,7 @@ class TelemetryController extends GetxController {
       if (!sent) return false;
     } else {
       _simulation.setSimulationActive(true);
+      _resumeOfflineFeed();
     }
 
     await _logEvent(
@@ -378,7 +433,7 @@ class TelemetryController extends GetxController {
     simulationValues.clear();
 
     await _logEvent(EventCategory.system, 'Simulation stopped');
-    if (!isConnected) _emitDemoSnapshot();
+    if (!isConnected) _resumeOfflineFeed();
   }
 
   /// Injects [value] for [sensor] so the actuators respond to it.
@@ -425,11 +480,7 @@ class TelemetryController extends GetxController {
     if (previous.useDemoDataWhenDisconnected !=
             newSettings.useDemoDataWhenDisconnected &&
         !isConnected) {
-      if (newSettings.useDemoDataWhenDisconnected) {
-        _startDemoFeedIfEnabled();
-      } else {
-        _demoTimer?.cancel();
-      }
+      _resumeOfflineFeed();
     }
   }
 

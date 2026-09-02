@@ -127,6 +127,25 @@ class TelemetrySnapshot {
   final bool feedScaleTared;
   final bool waterScaleTared;
 
+  /// Every reading at zero, used when nothing is being received.
+  ///
+  /// Zero here means "no reading", not "a reading of zero" — the controller
+  /// gates history logging and alert evaluation on that distinction, so these
+  /// values are displayed but never logged or alerted on.
+  factory TelemetrySnapshot.noData() {
+    return TelemetrySnapshot(
+      timestamp: DateTime.now(),
+      temperatureC: 0,
+      humidityPercent: 0,
+      airPurityPercent: 0,
+      feedLevelPercent: 0,
+      waterLevelPercent: 0,
+      actuators: ActuatorType.values
+          .map((type) => ActuatorState(type: type, isOn: false))
+          .toList(),
+    );
+  }
+
   /// Derived from the phone's clock: the controller has neither a light
   /// sensor nor a real-time clock, so it cannot report this itself.
   bool get isDaytime =>
@@ -232,16 +251,22 @@ class TelemetryHistoryPoint {
     required this.timestamp,
     required this.value,
     required this.parameter,
+    this.simulated = false,
   });
 
   final DateTime timestamp;
   final double value;
   final String parameter;
 
+  /// True when this point was recorded during a simulation session, so an
+  /// exported dataset can be told apart from genuine measurements.
+  final bool simulated;
+
   Map<String, dynamic> toJson() => {
         'timestamp': timestamp.toIso8601String(),
         'value': value,
         'parameter': parameter,
+        'simulated': simulated,
       };
 
   factory TelemetryHistoryPoint.fromJson(Map<String, dynamic> json) =>
@@ -249,5 +274,6 @@ class TelemetryHistoryPoint {
         timestamp: DateTime.parse(json['timestamp'] as String),
         value: (json['value'] as num).toDouble(),
         parameter: json['parameter'] as String,
+        simulated: json['simulated'] as bool? ?? false,
       );
 }

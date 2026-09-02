@@ -204,6 +204,14 @@ class SimulationPage extends StatelessWidget {
                     ),
                     _safetyNote(
                       context,
+                      Icons.assignment_outlined,
+                      'The dataset stays honest',
+                      'With a controller connected, readings logged during a '
+                          'session are marked as simulated in the CSV export. '
+                          'Without one, nothing is logged at all.',
+                    ),
+                    _safetyNote(
+                      context,
                       Icons.timer_outlined,
                       'It stops on its own',
                       'A session cannot run longer than '

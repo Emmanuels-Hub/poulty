@@ -98,6 +98,7 @@ class HistoryService {
   final LocalStorageService _storage;
 
   final Map<String, List<double>> _pending = {};
+  bool _pendingSimulated = false;
   final Map<String, List<TelemetryHistoryPoint>> _series = {};
 
   DateTime? _lastCommitAt;
@@ -133,6 +134,10 @@ class HistoryService {
   /// interval has elapsed. Returns true when a new point was written, so the
   /// caller knows to refresh its charts.
   bool record(TelemetrySnapshot snapshot) {
+    // If any reading in the window was injected, the committed point is
+    // marked simulated so an exported dataset stays honest.
+    if (snapshot.simulationMode) _pendingSimulated = true;
+
     _accumulate('temperature', snapshot.temperatureC);
     _accumulate('humidity', snapshot.humidityPercent);
     _accumulate('airPurity', snapshot.airPurityPercent);
@@ -174,6 +179,7 @@ class HistoryService {
           // Stored to one decimal: sensor precision does not justify more.
           value: double.parse(mean.toStringAsFixed(1)),
           parameter: parameter.key,
+          simulated: _pendingSimulated,
         ),
       );
 
@@ -182,6 +188,7 @@ class HistoryService {
       }
     }
 
+    _pendingSimulated = false;
     _dirty = true;
     _scheduleFlush();
   }
@@ -251,9 +258,19 @@ class HistoryService {
         },
     };
 
+    final simulatedAt = <DateTime>{
+      for (final parameter in historyParameters)
+        for (final point in _series[parameter.key] ?? const [])
+          if (point.simulated) point.timestamp,
+    };
+
     final buffer = StringBuffer()
       ..writeln(
-        ['timestamp', ...historyParameters.map((p) => p.csvColumn)].join(','),
+        [
+          'timestamp',
+          ...historyParameters.map((p) => p.csvColumn),
+          'simulated',
+        ].join(','),
       );
 
     for (final timestamp in ordered) {
@@ -262,6 +279,7 @@ class HistoryService {
         final value = lookup[parameter.key]?[timestamp];
         row.add(value?.toStringAsFixed(1) ?? '');
       }
+      row.add(simulatedAt.contains(timestamp) ? 'true' : 'false');
       buffer.writeln(row.join(','));
     }
 
@@ -275,6 +293,7 @@ class HistoryService {
       await _storage.saveHistory(parameter.key, const []);
     }
     _lastCommitAt = null;
+    _pendingSimulated = false;
     _dirty = false;
   }
 

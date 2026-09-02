@@ -46,13 +46,16 @@ class StageThresholds {
 class AppSettings {
   const AppSettings({
     this.themeMode = ThemeMode.system,
-    this.useDemoDataWhenDisconnected = true,
+    this.useDemoDataWhenDisconnected = false,
   });
 
   final ThemeMode themeMode;
 
-  /// Show generated readings while no ESP32 is connected, so the UI stays
-  /// usable without hardware.
+  /// Show generated readings while no ESP32 is connected.
+  ///
+  /// Off by default: with nothing connected the dashboard shows zeros, so a
+  /// plausible-looking number is never mistaken for a measurement. Generated
+  /// readings are never logged or alerted on either way.
   final bool useDemoDataWhenDisconnected;
 
   StageThresholds get thresholds => StageThresholds.starter;
@@ -79,7 +82,7 @@ class AppSettings {
           orElse: () => ThemeMode.system,
         ),
         useDemoDataWhenDisconnected:
-            json['useDemoDataWhenDisconnected'] as bool? ?? true,
+            json['useDemoDataWhenDisconnected'] as bool? ?? false,
       );
 
   static AppSettings defaults() => const AppSettings();
