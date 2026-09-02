@@ -97,6 +97,8 @@ class TelemetrySnapshot {
     this.deviceId = 'esp32-main',
     this.simulationMode = false,
     this.simulatedSensors = const {},
+    this.feedScaleTared = true,
+    this.waterScaleTared = true,
   });
 
   final DateTime timestamp;
@@ -118,6 +120,12 @@ class TelemetrySnapshot {
   /// Which sensors are currently being simulated, decoded from the frame's
   /// bitmask so the app can label individual readings as fake.
   final Set<SensorType> simulatedSensors;
+
+  /// Whether each load cell has a saved zero point. Until it does, the level
+  /// percentages are meaningless. Defaults to true so a frame from firmware
+  /// that does not report this is not treated as uncalibrated.
+  final bool feedScaleTared;
+  final bool waterScaleTared;
 
   /// Derived from the phone's clock: the controller has neither a light
   /// sensor nor a real-time clock, so it cannot report this itself.
@@ -147,6 +155,8 @@ class TelemetrySnapshot {
     String? deviceId,
     bool? simulationMode,
     Set<SensorType>? simulatedSensors,
+    bool? feedScaleTared,
+    bool? waterScaleTared,
   }) {
     return TelemetrySnapshot(
       timestamp: timestamp ?? this.timestamp,
@@ -161,6 +171,8 @@ class TelemetrySnapshot {
       deviceId: deviceId ?? this.deviceId,
       simulationMode: simulationMode ?? this.simulationMode,
       simulatedSensors: simulatedSensors ?? this.simulatedSensors,
+      feedScaleTared: feedScaleTared ?? this.feedScaleTared,
+      waterScaleTared: waterScaleTared ?? this.waterScaleTared,
     );
   }
 
@@ -177,6 +189,8 @@ class TelemetrySnapshot {
         'deviceId': deviceId,
         'simulationMode': simulationMode,
         'simulatedMask': encodeSimulatedMask(simulatedSensors),
+        'feedTared': feedScaleTared,
+        'waterTared': waterScaleTared,
       };
 
   factory TelemetrySnapshot.fromJson(Map<String, dynamic> json) =>
@@ -208,6 +222,8 @@ class TelemetrySnapshot {
         simulationMode: json['simulationMode'] as bool? ?? false,
         simulatedSensors:
             decodeSimulatedMask((json['simulatedMask'] as num?)?.toInt() ?? 0),
+        feedScaleTared: json['feedTared'] as bool? ?? true,
+        waterScaleTared: json['waterTared'] as bool? ?? true,
       );
 }
 

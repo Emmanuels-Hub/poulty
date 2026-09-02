@@ -288,6 +288,12 @@ class Esp32BleService {
     return sendCommand('setSensor', {'sensor': sensor.name, 'clear': true});
   }
 
+  /// Records the current reading as the empty point for one load cell. The
+  /// controller stores the offset, so this is done once per container rather
+  /// than on every boot.
+  Future<bool> tareScale(String scale) =>
+      sendCommand('tareScale', {'scale': scale});
+
   void _setStatus(DeviceConnectionStatus status) {
     if (_status == status) return;
     _status = status;

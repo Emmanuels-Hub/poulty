@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/constants/enums.dart';
 import '../../core/theme/app_theme.dart';
+import '../../data/models/telemetry_model.dart';
 import '../../core/utils/enum_labels.dart';
 import '../../modules/telemetry/telemetry_controller.dart';
 import '../../widgets/common_widgets.dart';
@@ -98,6 +99,7 @@ class DashboardPage extends StatelessWidget {
               children: [
                 MetricCard(
                   title: 'Temperature',
+                  trailing: _simulatedMark(snapshot, SensorType.temperature),
                   value: snapshot.temperatureC.toStringAsFixed(1),
                   unit: '°C',
                   icon: Icons.thermostat,
@@ -105,6 +107,7 @@ class DashboardPage extends StatelessWidget {
                 ),
                 MetricCard(
                   title: 'Humidity',
+                  trailing: _simulatedMark(snapshot, SensorType.humidity),
                   value: snapshot.humidityPercent.toStringAsFixed(0),
                   unit: '%',
                   icon: Icons.water_drop,
@@ -112,6 +115,7 @@ class DashboardPage extends StatelessWidget {
                 ),
                 MetricCard(
                   title: 'Air Purity',
+                  trailing: _simulatedMark(snapshot, SensorType.airPurity),
                   value: snapshot.airPurityPercent.toStringAsFixed(0),
                   unit: '%',
                   icon: Icons.air,
@@ -123,6 +127,7 @@ class DashboardPage extends StatelessWidget {
                 ),
                 MetricCard(
                   title: 'Feed Level',
+                  trailing: _simulatedMark(snapshot, SensorType.feedLevel),
                   value: snapshot.feedLevelPercent.toStringAsFixed(0),
                   unit: '%',
                   icon: Icons.grain,
@@ -130,6 +135,7 @@ class DashboardPage extends StatelessWidget {
                 ),
                 MetricCard(
                   title: 'Water Level',
+                  trailing: _simulatedMark(snapshot, SensorType.waterLevel),
                   value: snapshot.waterLevelPercent.toStringAsFixed(0),
                   unit: '%',
                   icon: Icons.water,
@@ -192,6 +198,16 @@ class DashboardPage extends StatelessWidget {
     if (percent >= AppConstants.starterAirPurityMin) return 'Acceptable';
     if (percent >= 40) return 'Poor';
     return 'Hazardous';
+  }
+
+  /// A small marker on any reading the controller is not actually measuring
+  /// right now, so an injected value is never mistaken for a real one.
+  static Widget? _simulatedMark(TelemetrySnapshot snapshot, SensorType sensor) {
+    if (!snapshot.isSimulated(sensor)) return null;
+    return const Tooltip(
+      message: 'Simulated value',
+      child: Icon(Icons.science, size: 14, color: AppTheme.warningOrange),
+    );
   }
 
   IconData _actuatorIcon(ActuatorType type) {

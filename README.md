@@ -11,7 +11,9 @@ Cross-platform Flutter application for monitoring and controlling poultry farm e
 - **Manual actuator control** — Disabled until Manual mode is activated in Settings, then confirmation-prompted with an automatic timeout
 - **Light & dark theme** — Follows the system, or pin it to light/dark; the choice is persisted
 - **Analytics** — Approximated trend charts (readings are bucket-averaged, so values are indicative rather than exact)
-- **Notifications** — Critical alerts with repeat intervals; auto-clear when conditions normalize
+- **Alerts & push notifications** — Delivered to the phone's notification shade even when the app is closed, with severity-tiered priority; they auto-clear when conditions normalise
+- **Data logging** — Readings averaged and logged once a minute (~24 h retained), with per-parameter statistics and CSV export
+- **Simulation** — Inject sensor readings and watch the real actuators respond, under firmware-enforced safety limits
 - **Live feed** — Continuous MJPEG video from the ESP32-CAM
 - **Production stage** — Starter only
 - **Offline support** — Local caching, plus optional generated demo data while no controller is linked
@@ -66,14 +68,14 @@ lib/
 
 ## ESP32 Integration (Bluetooth Low Energy)
 
-Firmware lives in [`esp/esp.ino`](esp/esp.ino) and targets an ESP32-WROOM-32.
+Firmware lives in [`esp/Smart_Poultry/Smart_Poultry.ino`](esp/Smart_Poultry/Smart_Poultry.ino) and targets an ESP32-WROOM-32.
 
 | Component | Pin(s) | Provides |
 |---|---|---|
 | DHT22 | GPIO 4 | temperature, humidity |
 | MQ-135 gas sensor | GPIO 34 (ADC) | air purity |
-| HX711 + load cell | GPIO 16 / 17 | feed level |
-| HX711 + load cell | GPIO 18 / 19 | water level |
+| HX711 + load cell | GPIO 21 / 22 | feed level |
+| HX711 + load cell | GPIO 23 / 27 | water level |
 | Ventilation fan | GPIO 25 | cooling, air exchange |
 | Heat lamp | GPIO 26 | brooding heat |
 
@@ -104,13 +106,24 @@ across notifications.
   "waterLevelPercent": 85.0,
   "operatingMode": "automatic",
   "poultryStage": "starter",
+  "simulationMode": false,
+  "simulatedMask": 0,
   "actuators": [
     {"type": "ventilationFan", "isOn": false, "isManualOverride": false, "hasFailure": false},
     {"type": "heatLamp", "isOn": true, "isManualOverride": false, "hasFailure": false}
   ],
-  "deviceId": "esp32-main"
+  "deviceId": "SmartPoultry-Coop"
 }
 ```
+
+The firmware also sends `temperatureCategory`, `humidityCategory`,
+`airPurityCategory`, `feedStatus`, `waterStatus`, `feedRefillNeeded` and
+`waterRefillNeeded`. The app derives those itself from the shared thresholds
+and ignores them, so they are free to change without breaking anything.
+
+`simulatedMask` is a bitmask of which sensors are currently being simulated:
+bit 0 temperature, 1 humidity, 2 air purity, 3 feed, 4 water. The order is part
+of the contract and is covered by `test/ble_contract_test.dart`.
 
 Every field is optional — a missing or unrecognised value falls back to a safe
 default rather than dropping the frame. Two fields are deliberately absent:
@@ -122,11 +135,71 @@ default rather than dropping the frame. Two fields are deliberately absent:
 
 ### Command frames (app → ESP32)
 
-```json
-{"cmd": "setMode",     "mode": "automatic"}
-{"cmd": "setStage",    "stage": "starter"}
-{"cmd": "setActuator", "actuator": "ventilationFan", "state": true, "timeoutMinutes": 15}
-```
+Newline-delimited JSON on the command characteristic.
+
+| `cmd` | Payload | Effect |
+|---|---|---|
+| `setMode` | `{"mode":"automatic"\|"manual"}` | Switches control mode |
+| `setStage` | `{"stage":"starter"}` | Acknowledged; starter is the only stage |
+| `setActuator` | `{"actuator":"ventilationFan"\|"heatLamp","state":true,"timeoutMinutes":15}` | Manual override, reverts on timeout. Ignored unless in Manual mode |
+| `setSimulation` | `{"enabled":true,"timeoutMinutes":10}` | Starts/stops a simulation session |
+| `setSensor` | `{"sensor":"temperature","value":36.5}` or `{"sensor":"temperature","clear":true}` | Injects or releases one reading. Ignored unless simulation is active |
+| `tareScale` | `{"scale":"feed"\|"water"}` | Records the current weight as the empty point and saves it
+
+Sensor names are `temperature`, `humidity`, `airPurity`, `feedLevel`, `waterLevel`
+— matching the app's `SensorType` and the firmware's `SIM_*` bit order.
+
+## Load cell calibration
+
+Both level readings depend on a **zero point** — the reading that counts as an
+empty container. This is set once per container from
+**Settings → Load Cell Calibration**, with the container actually empty. The
+controller saves the offset to NVS and restores it on every boot.
+
+Do not zero a container that has anything in it: the contents would be treated
+as "empty" and every level reading would be wrong until you redo it. The app
+confirms before sending the command, and the dashboard reports
+`feedTared` / `waterTared` so an uncalibrated scale is visible rather than
+silently reading 0%.
+
+You also need a **calibration factor** (`feedCalibrationFactor` /
+`waterCalibrationFactor` in the sketch) to convert raw counts to kilograms:
+zero the scale, place a known weight, and divide the raw reading by the real
+weight in kg.
+
+## Simulation
+
+Simulation injects sensor readings so the **real relays respond**, which is how
+the system is demonstrated without waiting for the coop to actually heat up or
+foul. Open it from **Settings → Simulation**.
+
+With no controller connected the same screen drives the on-screen demo instead,
+so the flow can still be shown without hardware.
+
+### How it is kept safe
+
+The firmware owns every rule — the app cannot talk it out of any of them:
+
+1. **Real sensors keep running.** Simulation only replaces the numbers handed
+   to the control logic. The controller never stops measuring.
+2. **A real over-temperature always wins.** At or above the critical high limit
+   the session is cancelled, the fan forced on and the heat lamp off. This runs
+   in *every* mode, including Manual, and always from the real reading.
+3. **Sessions expire.** They stop on their own, and cannot be extended past
+   `SIM_MAX_MINUTES` from when they started.
+4. **Losing the link ends it.** A BLE disconnect stops simulation immediately.
+5. **Injected values are clamped** to physically plausible ranges.
+6. **It is visible.** A banner sits across every screen while a session runs,
+   and each simulated reading is flagged on the dashboard.
+
+One deliberate asymmetry: a real **critically low** temperature is reported but
+not enforced while a session is running. It is true of any bench sitting at room
+temperature, so enforcing it would pin the heat lamp on and make simulation
+impossible to demonstrate. A critically *high* temperature can damage equipment
+and is never suppressed.
+
+> Injected readings only move the relays while the system is in **Automatic**
+> mode — in Manual the controller is waiting for you, not for the sensors.
 
 ### Air purity from the MQ-135
 
@@ -148,7 +221,7 @@ after power-up; readings before that are not trustworthy.
 
 ### Shared thresholds
 
-The comfort bands live in **both** `esp/esp.ino` and `lib/core/constants/app_constants.dart`
+The comfort bands live in **both** `esp/Smart_Poultry/Smart_Poultry.ino` and `lib/core/constants/app_constants.dart`
 and must be kept identical — the firmware drives the relays from its copy, the
 app raises alerts from its own.
 

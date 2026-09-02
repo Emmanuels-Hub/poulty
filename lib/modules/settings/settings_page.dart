@@ -5,8 +5,11 @@ import '../../core/constants/enums.dart';
 import '../../core/services/esp32_ble_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/enum_labels.dart';
+import '../../core/services/notification_service.dart';
 import '../../modules/telemetry/telemetry_controller.dart';
 import '../../widgets/common_widgets.dart';
+import '../history/history_page.dart';
+import '../simulation/simulation_page.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
@@ -179,12 +182,186 @@ class SettingsPage extends StatelessWidget {
                         )
                       : null,
                 ),
+                if (!c.isConnected && c.lastConnectionError.isNotEmpty) ...[
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: const Icon(
+                      Icons.error_outline,
+                      color: AppTheme.criticalRed,
+                    ),
+                    title: const Text('Last connection error'),
+                    subtitle: Text(c.lastConnectionError),
+                  ),
+                ],
               ],
+            ),
+          ),
+          const SectionHeader(title: 'Data'),
+          Card(
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.show_chart),
+                  title: const Text('Sensor history'),
+                  subtitle: const Text(
+                    'Logged readings, statistics and CSV export',
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Get.to(() => const HistoryPage()),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: Icon(
+                    Icons.science_outlined,
+                    color: c.isSimulating ? AppTheme.warningOrange : null,
+                  ),
+                  title: const Text('Simulation'),
+                  subtitle: Text(
+                    c.isSimulating
+                        ? 'Running — actuators are following injected values'
+                        : 'Inject sensor readings and watch the actuators react',
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Get.to(() => const SimulationPage()),
+                ),
+              ],
+            ),
+          ),
+          const SectionHeader(title: 'Load Cell Calibration'),
+          Card(
+            child: Column(
+              children: [
+                if (snapshot != null &&
+                    (!snapshot.feedScaleTared || !snapshot.waterScaleTared))
+                  ListTile(
+                    leading: const Icon(
+                      Icons.warning_amber,
+                      color: AppTheme.warningOrange,
+                    ),
+                    title: const Text('Levels are not calibrated'),
+                    subtitle: Text(
+                      'Feed and water percentages stay unreliable until '
+                      '${!snapshot.feedScaleTared && !snapshot.waterScaleTared ? 'both scales are' : 'the scale is'} '
+                      'zeroed with the container empty.',
+                    ),
+                  ),
+                ListTile(
+                  leading: const Icon(Icons.scale),
+                  title: const Text('Feed scale'),
+                  subtitle: Text(
+                    snapshot?.feedScaleTared ?? true
+                        ? 'Zero point saved'
+                        : 'Never zeroed',
+                  ),
+                  trailing: TextButton(
+                    onPressed: canControl && c.isConnected
+                        ? () => _tare(context, c, 'feed', 'feed')
+                        : null,
+                    child: const Text('Zero'),
+                  ),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.scale),
+                  title: const Text('Water scale'),
+                  subtitle: Text(
+                    snapshot?.waterScaleTared ?? true
+                        ? 'Zero point saved'
+                        : 'Never zeroed',
+                  ),
+                  trailing: TextButton(
+                    onPressed: canControl && c.isConnected
+                        ? () => _tare(context, c, 'water', 'water')
+                        : null,
+                    child: const Text('Zero'),
+                  ),
+                ),
+                if (!c.isConnected)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                    child: Text(
+                      'Connect to the controller to calibrate.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppTheme.secondaryText(context),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SectionHeader(title: 'Notifications'),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.notifications_active_outlined),
+              title: const Text('Alert notifications'),
+              subtitle: const Text(
+                'Get warned about temperature, air purity, feed and water '
+                'even when the app is closed',
+              ),
+              trailing: TextButton(
+                onPressed: () async {
+                  final granted = await Get.find<NotificationService>()
+                      .requestPermission();
+                  Get.snackbar(
+                    granted ? 'Notifications on' : 'Notifications blocked',
+                    granted
+                        ? 'Alerts will be delivered to this phone.'
+                        : 'Enable notifications for Smart Poultry in your '
+                              'phone settings.',
+                    snackPosition: SnackPosition.BOTTOM,
+                  );
+                },
+                child: const Text('Enable'),
+              ),
             ),
           ),
         ],
       );
     });
+  }
+
+  /// Zeroing is destructive if the container is not empty, so it is confirmed
+  /// and explained rather than being a bare button.
+  Future<void> _tare(
+    BuildContext context,
+    TelemetryController c,
+    String scale,
+    String label,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Zero the $label scale?'),
+        content: Text(
+          'The controller will record the weight on the $label scale right '
+          'now as "empty".\n\n'
+          'Only do this with the container actually empty — otherwise every '
+          'level reading will be wrong until you redo it.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('It is empty, zero it'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    final sent = await c.tareScale(scale);
+    Get.snackbar(
+      sent ? 'Scale zeroed' : 'Could not zero the scale',
+      sent
+          ? 'The $label zero point is saved on the controller.'
+          : 'The controller did not accept the command.',
+      snackPosition: SnackPosition.BOTTOM,
+    );
   }
 
   Future<void> _showScanSheet(

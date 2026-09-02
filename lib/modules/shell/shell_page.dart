@@ -13,6 +13,7 @@ import '../devices/devices_page.dart';
 import '../livefeed/live_feed_page.dart';
 import '../notifications/notifications_page.dart';
 import '../settings/settings_page.dart';
+import '../simulation/simulation_page.dart';
 import '../users/users_page.dart';
 
 class ShellPage extends StatefulWidget {
@@ -129,7 +130,62 @@ class _ShellPageState extends State<ShellPage> {
           ),
         ],
       ),
-      body: IndexedStack(index: _index, children: pages),
+      body: Column(
+        children: [
+          // A running simulation means the actuators are following injected
+          // values, so it stays visible on every tab rather than only on the
+          // page that started it.
+          Obx(() {
+            if (!telemetry.isSimulating) return const SizedBox.shrink();
+            return Material(
+              color: AppTheme.warningOrange,
+              child: InkWell(
+                onTap: () => Get.to(() => const SimulationPage()),
+                child: SafeArea(
+                  bottom: false,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.science,
+                          size: 18,
+                          color: Colors.white,
+                        ),
+                        const SizedBox(width: 8),
+                        const Expanded(
+                          child: Text(
+                            'Simulation running — readings are injected',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: telemetry.stopSimulation,
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.white,
+                            visualDensity: VisualDensity.compact,
+                          ),
+                          child: const Text('Stop'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }),
+          Expanded(
+            child: IndexedStack(index: _index, children: pages),
+          ),
+        ],
+      ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
         onDestinationSelected: (i) => setState(() => _index = i),

@@ -5,6 +5,7 @@ import 'package:get/get.dart';
 import 'app/bindings/initial_binding.dart';
 import 'core/constants/app_constants.dart';
 import 'core/services/local_storage_service.dart';
+import 'core/services/notification_service.dart';
 import 'core/theme/app_theme.dart';
 import 'routes/app_pages.dart';
 import 'routes/app_routes.dart';
@@ -16,6 +17,10 @@ Future<void> main() async {
   await storage.init();
   await storage.seedDefaultUsersIfEmpty();
   await storage.seedDefaultDeviceIfEmpty();
+
+  // Set up the channel now so the first alert can fire without delay. The
+  // runtime permission prompt is left to Settings, where it has context.
+  await NotificationService().init();
 
   runApp(PoultyApp(themeMode: storage.getSettings().themeMode));
 }

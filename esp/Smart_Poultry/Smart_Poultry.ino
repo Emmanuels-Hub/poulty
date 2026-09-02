@@ -21,6 +21,8 @@
 #include <DHT.h>
 #include "HX711.h"
 
+#include <Preferences.h>
+
 #include <BLE2902.h>
 #include <BLEDevice.h>
 #include <BLEServer.h>
@@ -189,6 +191,20 @@ float waterCalibrationFactor = 960.0;
 
 
 // =====================================================
+//               LOAD CELL SAFETY LIMITS
+// =====================================================
+//
+// HX711::get_units() waits for the chip with an UNBOUNDED loop, so a cell that
+// loses power mid-read hangs the whole controller. Every read is bounded by a
+// timeout instead.
+//
+
+#define HX711_READ_TIMEOUT_MS 150
+#define HX711_BOOT_TIMEOUT_MS 1000
+#define HX711_SAMPLES 3
+
+
+// =====================================================
 //              FEED / WATER LEVEL LIMITS
 // =====================================================
 //
@@ -241,6 +257,14 @@ float waterWeightKg = 0.0;
 
 bool haveTemperature = false;
 bool haveHumidity = false;
+
+// Whether each load cell is responding, and whether it has ever been tared.
+bool feedScaleReady = false;
+bool waterScaleReady = false;
+bool feedScaleTared = false;
+bool waterScaleTared = false;
+
+Preferences prefs;
 
 
 // =====================================================
@@ -418,32 +442,6 @@ int simulatedMask()
 }
 
 
-void stopSimulation(const char *reason)
-{
-  if (!simulationActive)
-    return;
-
-  simulationActive = false;
-
-  for (int i = 0; i < SIM_SENSOR_COUNT; i++)
-  {
-    simOverride[i] = false;
-  }
-
-  // Hand the actuators straight back to automatic control.
-  fanManual = false;
-  heatLampManual = false;
-
-  Serial.print(
-    "SIMULATION STOPPED: "
-  );
-
-  Serial.println(
-    reason
-  );
-}
-
-
 // Chooses real or injected values for every sensor. Called at the end of each
 // sensor read, so the control logic downstream never has to care which is which.
 void updateEffectiveValues()
@@ -473,6 +471,37 @@ void updateEffectiveValues()
         ? simValue[SIM_WATER]
         : waterLevelPercent;
 }
+
+void stopSimulation(const char *reason)
+{
+  if (!simulationActive)
+    return;
+
+  simulationActive = false;
+
+  for (int i = 0; i < SIM_SENSOR_COUNT; i++)
+  {
+    simOverride[i] = false;
+  }
+
+  // Hand the actuators straight back to automatic control.
+  fanManual = false;
+  heatLampManual = false;
+
+  // Fall back to the real readings straight away.
+  updateEffectiveValues();
+
+
+  Serial.print(
+    "SIMULATION STOPPED: "
+  );
+
+  Serial.println(
+    reason
+  );
+}
+
+
 
 
 // =====================================================
@@ -781,6 +810,21 @@ void readTemperatureAndHumidity()
 
 
 // =====================================================
+//                MQ-135 WARM-UP STATE
+// =====================================================
+//
+// The heater needs time to settle. Until it has, the sensor reads high (i.e.
+// dirty), which would otherwise hold the fan on for the first 20 seconds after
+// every power-up.
+//
+
+bool gasSensorWarmedUp()
+{
+  return (millis() - bootMillis) >= GAS_WARMUP_MS;
+}
+
+
+// =====================================================
 //                   READ MQ-135
 // =====================================================
 
@@ -822,12 +866,78 @@ void readAirPurity()
 float readWeightKg(
     HX711 &scale,
     float lastValue,
+    bool &readyFlag,
     const char *label)
 {
-  if (!scale.is_ready())
+  double total = 0;
+  int taken = 0;
+
+  for (int i = 0; i < HX711_SAMPLES; i++)
+  {
+    // Bounded wait. get_units() on its own would block forever if the cell
+    // is unplugged or browns out.
+    if (!scale.wait_ready_timeout(HX711_READ_TIMEOUT_MS))
+      break;
+
+    total += scale.get_units(1);
+    taken++;
+  }
+
+  if (taken == 0)
+  {
+    if (readyFlag)
+    {
+      Serial.print(
+        "WARNING: "
+      );
+
+      Serial.print(
+        label
+      );
+
+      Serial.println(
+        " HX711 stopped responding; holding last value."
+      );
+    }
+
+    readyFlag = false;
+    return lastValue;
+  }
+
+  readyFlag = true;
+
+  float weightKg =
+      (float)(total / taken);
+
+  if (weightKg < 0)
+    weightKg = 0;
+
+  return weightKg;
+}
+
+
+// =====================================================
+//                LOAD CELL TARE / ZERO
+// =====================================================
+//
+// Taring records the reading that counts as "empty". It must be done ONCE
+// with the container actually empty, and the offset kept from then on.
+//
+// Taring on every boot would zero out whatever is already in the container,
+// so a full feeder powered on would report 0% and raise a refill alert.
+// The offset is therefore stored in NVS and reloaded at startup; the app
+// triggers a fresh tare deliberately.
+//
+
+bool tareScale(
+    HX711 &scale,
+    const char *storageKey,
+    const char *label)
+{
+  if (!scale.wait_ready_timeout(HX711_BOOT_TIMEOUT_MS))
   {
     Serial.print(
-      "WARNING: "
+      "Cannot tare "
     );
 
     Serial.print(
@@ -835,19 +945,89 @@ float readWeightKg(
     );
 
     Serial.println(
-      " HX711 not ready."
+      ": HX711 is not responding."
     );
 
-    return lastValue;
+    return false;
   }
 
-  float weightKg =
-      scale.get_units(5);
+  scale.tare(10);
 
-  if (weightKg < 0)
-    weightKg = 0;
+  prefs.begin("poultry", false);
 
-  return weightKg;
+  prefs.putLong(
+    storageKey,
+    scale.get_offset()
+  );
+
+  prefs.end();
+
+  Serial.print(
+    label
+  );
+
+  Serial.println(
+    " scale tared and zero point saved."
+  );
+
+  return true;
+}
+
+
+void loadScaleOffsets()
+{
+  prefs.begin("poultry", true);
+
+  long feedOffset =
+      prefs.getLong("feedOffset", 0);
+
+  long waterOffset =
+      prefs.getLong("waterOffset", 0);
+
+  prefs.end();
+
+
+  if (feedOffset != 0)
+  {
+    feedScale.set_offset(feedOffset);
+    feedScaleTared = true;
+  }
+
+  if (waterOffset != 0)
+  {
+    waterScale.set_offset(waterOffset);
+    waterScaleTared = true;
+  }
+
+
+  if (feedScaleTared && waterScaleTared)
+  {
+    Serial.println(
+      "Load cell zero points restored from memory."
+    );
+  }
+  else
+  {
+    Serial.println();
+
+    Serial.println(
+      "NOTE: one or both load cells have never been tared."
+    );
+
+    Serial.println(
+      "      Empty the container, then tare from the app"
+    );
+
+    Serial.println(
+      "      (Settings > Load Cell Calibration)."
+    );
+
+    Serial.println(
+      "      Levels stay unreliable until you do."
+    );
+
+    Serial.println();
+  }
 }
 
 
@@ -865,6 +1045,7 @@ void readSensors()
       readWeightKg(
         feedScale,
         feedWeightKg,
+        feedScaleReady,
         "Feed"
       );
 
@@ -872,6 +1053,7 @@ void readSensors()
       readWeightKg(
         waterScale,
         waterWeightKg,
+        waterScaleReady,
         "Water"
       );
 
@@ -944,8 +1126,12 @@ void applyAutomaticControl()
   }
 
 
-  // Air purity too low
-  if (effAirPurityPercent < AIR_PURITY_WARNING_LOW)
+  // Air purity too low. Ignored until the MQ-135 has warmed up, otherwise
+  // every boot would start with the fan running on a meaningless reading.
+  if (
+      gasSensorWarmedUp() &&
+      effAirPurityPercent < AIR_PURITY_WARNING_LOW
+     )
   {
     fanRequest = true;
   }
@@ -975,9 +1161,10 @@ void applyAutomaticControl()
 
           &&
 
-          effAirPurityPercent >
-              (AIR_PURITY_WARNING_LOW +
-               PURITY_HYSTERESIS);
+          (!gasSensorWarmedUp() ||
+           effAirPurityPercent >
+               (AIR_PURITY_WARNING_LOW +
+                PURITY_HYSTERESIS));
 
 
       if (environmentRecovered)
@@ -1296,6 +1483,14 @@ void printStatus()
 
   Serial.println();
 
+  if (!feedScaleTared || !waterScaleTared)
+  {
+    Serial.println(
+      "NOTE: load cell not tared - levels are not trustworthy yet."
+    );
+  }
+
+
   Serial.print(
     "Feed Level  : "
   );
@@ -1544,6 +1739,9 @@ String buildTelemetryJson()
         "\"simulationMode\":%s,"
         "\"simulatedMask\":%d,"
 
+        "\"feedTared\":%s,"
+        "\"waterTared\":%s,"
+
         "\"temperatureCategory\":\"%s\","
         "\"humidityCategory\":\"%s\","
         "\"airPurityCategory\":\"%s\","
@@ -1591,6 +1789,14 @@ String buildTelemetryJson()
           : "false",
 
         simulatedMask(),
+
+        feedScaleTared
+          ? "true"
+          : "false",
+
+        waterScaleTared
+          ? "true"
+          : "false",
 
         getTemperatureCategory(
           effTemperatureC
@@ -2129,6 +2335,10 @@ void handleSetActuator(
   }
 
 
+  // Even a deliberate manual command yields to a real critical temperature.
+  applyCriticalSafety();
+
+
   driveActuators();
 }
 
@@ -2377,6 +2587,59 @@ void handleSetSensor(
 
 
 // =====================================================
+//                  TARE COMMAND
+// =====================================================
+
+void handleTareScale(
+    const String &json)
+{
+  String target;
+
+
+  if (
+      !jsonGetString(
+        json,
+        "scale",
+        target
+      )
+     )
+    return;
+
+
+  if (target == "feed")
+  {
+    feedScaleTared =
+        tareScale(
+          feedScale,
+          "feedOffset",
+          "Feed"
+        );
+  }
+
+  else if (target == "water")
+  {
+    waterScaleTared =
+        tareScale(
+          waterScale,
+          "waterOffset",
+          "Water"
+        );
+  }
+
+  else
+  {
+    Serial.print(
+      "Unknown scale: "
+    );
+
+    Serial.println(
+      target
+    );
+  }
+}
+
+
+// =====================================================
 //                  HANDLE COMMAND
 // =====================================================
 
@@ -2460,6 +2723,17 @@ void handleCommand(
      )
   {
     handleSetSensor(
+      json
+    );
+  }
+
+
+  else if (
+      command ==
+      "tareScale"
+     )
+  {
+    handleTareScale(
       json
     );
   }
@@ -2795,9 +3069,6 @@ void setup()
   );
 
 
-  feedScale.tare();
-
-
   // ---------------- WATER HX711 ----------------
 
   waterScale.begin(
@@ -2811,7 +3082,9 @@ void setup()
   );
 
 
-  waterScale.tare();
+  // Restore the saved zero points instead of re-taring, which would
+  // discard whatever is currently in the containers.
+  loadScaleOffsets();
 
 
   // ---------------- RELAYS ----------------

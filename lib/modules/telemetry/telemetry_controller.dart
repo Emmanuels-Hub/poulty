@@ -407,6 +407,16 @@ class TelemetryController extends GetxController {
     }
   }
 
+  /// Zeroes one load cell. Must be done with the container empty.
+  Future<bool> tareScale(String scale) async {
+    if (!canControl || !isConnected) return false;
+    final sent = await _ble.tareScale(scale);
+    if (sent) {
+      await _logEvent(EventCategory.system, 'Tared the $scale load cell');
+    }
+    return sent;
+  }
+
   Future<void> saveSettings(AppSettings newSettings) async {
     final previous = settings.value;
     settings.value = newSettings;

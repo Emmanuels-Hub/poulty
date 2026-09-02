@@ -7,7 +7,15 @@ import '../constants/enums.dart';
 /// Raises OS-level notifications so alerts reach the farmer while the app is
 /// backgrounded — an in-app list is no use if nobody is looking at the phone.
 class NotificationService {
-  NotificationService();
+  // A singleton, because the underlying plugin is one too: main() initialises
+  // the channel before runApp, while the binding hands the service to the
+  // controller afterwards. Two instances would mean the second never sees
+  // _ready and would silently drop every alert.
+  NotificationService._();
+
+  static final NotificationService instance = NotificationService._();
+
+  factory NotificationService() => instance;
 
   final _plugin = FlutterLocalNotificationsPlugin();
 
