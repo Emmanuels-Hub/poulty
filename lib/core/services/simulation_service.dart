@@ -24,7 +24,35 @@ class SimulationService {
 
   int _tick = 0;
 
+  bool _simulationActive = false;
+  final Map<SensorType, double> _injected = {};
+
+  bool get isSimulationActive => _simulationActive;
+
+  Set<SensorType> get simulatedSensors =>
+      _simulationActive ? _injected.keys.toSet() : const {};
+
   void setMode(OperatingMode mode) => _mode = mode;
+
+  void setSimulationActive(bool active) {
+    _simulationActive = active;
+    if (!active) _injected.clear();
+  }
+
+  /// Pins a sensor to [value] so the demo actuators respond to it, mirroring
+  /// what the firmware does with a real controller attached.
+  void injectSensorValue(SensorType sensor, double value) {
+    _injected[sensor] = value;
+  }
+
+  void clearSensorValue(SensorType sensor) {
+    _injected.remove(sensor);
+  }
+
+  double _effective(SensorType sensor, double real) {
+    if (!_simulationActive) return real;
+    return _injected[sensor] ?? real;
+  }
 
   void setActuator(ActuatorType type, bool isOn) {
     _actuators[type] = isOn;
@@ -34,17 +62,35 @@ class SimulationService {
     _tick++;
     _drift();
 
+    // Injected values replace the drifting ones, so the control logic below
+    // reacts to them exactly as the firmware would.
+    final temperature =
+        _effective(SensorType.temperature, _jitter(_tempBase, 0.4));
+    final humidity =
+        _effective(SensorType.humidity, _jitter(_humidityBase, 1.2));
+    final airPurity = _effective(
+      SensorType.airPurity,
+      _jitter(_airPurityBase, 1.5).clamp(0, 100),
+    );
+    final feed = _effective(SensorType.feedLevel, _feedLevel);
+    final water = _effective(SensorType.waterLevel, _waterLevel);
+
     if (_mode == OperatingMode.automatic) {
-      _applyAutomaticControl(settings?.thresholds ?? StageThresholds.starter);
+      _applyAutomaticControl(
+        settings?.thresholds ?? StageThresholds.starter,
+        temperature: temperature,
+        humidity: humidity,
+        airPurity: airPurity,
+      );
     }
 
     return TelemetrySnapshot(
       timestamp: DateTime.now(),
-      temperatureC: _jitter(_tempBase, 0.4),
-      humidityPercent: _jitter(_humidityBase, 1.2),
-      airPurityPercent: _jitter(_airPurityBase, 1.5).clamp(0, 100),
-      feedLevelPercent: _feedLevel,
-      waterLevelPercent: _waterLevel,
+      temperatureC: temperature,
+      humidityPercent: humidity,
+      airPurityPercent: airPurity,
+      feedLevelPercent: feed,
+      waterLevelPercent: water,
       operatingMode: _mode,
       poultryStage: PoultryStage.starter,
       actuators: ActuatorType.values
@@ -57,6 +103,8 @@ class SimulationService {
           )
           .toList(),
       deviceId: device?.id ?? 'demo',
+      simulationMode: _simulationActive,
+      simulatedSensors: simulatedSensors,
     );
   }
 
@@ -76,10 +124,19 @@ class SimulationService {
     }
   }
 
-  void _applyAutomaticControl(StageThresholds thresholds) {
+  /// Mirrors applyAutomaticControl() in the firmware, including the humidity
+  /// trigger on the fan, so the demo behaves like the real controller.
+  void _applyAutomaticControl(
+    StageThresholds thresholds, {
+    required double temperature,
+    required double humidity,
+    required double airPurity,
+  }) {
     _actuators[ActuatorType.ventilationFan] =
-        _tempBase > thresholds.tempMax ||
-            _airPurityBase < thresholds.airPurityMin;
-    _actuators[ActuatorType.heatLamp] = _tempBase < thresholds.tempMin;
+        temperature > thresholds.tempMax ||
+            humidity > thresholds.humidityMax ||
+            airPurity < thresholds.airPurityMin;
+
+    _actuators[ActuatorType.heatLamp] = temperature < thresholds.tempMin;
   }
 }
