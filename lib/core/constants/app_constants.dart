@@ -13,7 +13,16 @@ class AppConstants {
   /// Manual actuator overrides revert automatically after this long.
   static const Duration manualActuatorTimeout = Duration(minutes: 15);
 
-  static const int maxHistoryPoints = 288;
+  /// Telemetry arrives every ~3 s, which is far denser than anything worth
+  /// keeping. Readings are averaged into one logged point per interval.
+  static const Duration historyLogInterval = Duration(minutes: 1);
+
+  /// One point a minute, so this is roughly 24 h of history per parameter.
+  static const int maxHistoryPoints = 1440;
+
+  /// History is flushed to disk in batches rather than on every point, to
+  /// avoid rewriting the whole series each time.
+  static const Duration historyFlushInterval = Duration(seconds: 30);
   static const int maxEventLogs = 500;
   static const int maxNotifications = 200;
 
@@ -65,6 +74,19 @@ class AppConstants {
 
   static const String bleDeviceNamePrefix = 'SmartPoultry';
   static const Duration bleScanTimeout = Duration(seconds: 10);
+
+  // --- Simulation ----------------------------------------------------------
+  /// Requested session length. The firmware caps this at its own hard limit.
+  static const Duration simulationDefaultDuration = Duration(minutes: 10);
+
+  /// Must match SIM_MAX_MINUTES in the firmware.
+  static const Duration simulationMaxDuration = Duration(minutes: 30);
+
+  // --- Notifications -------------------------------------------------------
+  static const String notificationChannelId = 'smart_poultry_alerts';
+  static const String notificationChannelName = 'Coop Alerts';
+  static const String notificationChannelDescription =
+      'Temperature, humidity, air purity, feed and water alerts.';
 
   static const String hiveBoxSettings = 'settings';
   static const String hiveBoxTelemetry = 'telemetry';

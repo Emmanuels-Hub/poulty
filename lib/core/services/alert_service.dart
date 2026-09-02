@@ -16,6 +16,25 @@ class AlertService {
   final Map<AlertType, DateTime> _lastAlertAt = {};
   final Set<AlertType> _activeAlerts = {};
 
+  // Alerts that fired or cleared during the last evaluate(), so the caller can
+  // turn them into OS notifications without re-deriving the state itself.
+  final List<AppNotification> _pendingNotifications = [];
+  final List<AlertType> _pendingClears = [];
+
+  /// Alerts raised or refreshed since this was last called.
+  List<AppNotification> takePendingNotifications() {
+    final pending = List<AppNotification>.from(_pendingNotifications);
+    _pendingNotifications.clear();
+    return pending;
+  }
+
+  /// Alert types whose condition has cleared since this was last called.
+  List<AlertType> takePendingClears() {
+    final pending = List<AlertType>.from(_pendingClears);
+    _pendingClears.clear();
+    return pending;
+  }
+
   List<AppNotification> evaluate(
     TelemetrySnapshot snapshot,
     AppSettings settings,
@@ -202,27 +221,30 @@ class AlertService {
           timestamp: now,
           isRead: false,
         );
+        // Still worth re-notifying: the condition has persisted past the
+        // notification interval rather than resolving.
+        _pendingNotifications.add(notifications[index]);
       }
       return;
     }
 
     _activeAlerts.add(type);
-    notifications.insert(
-      0,
-      AppNotification(
-        id: _uuid.v4(),
-        type: type,
-        severity: severity,
-        title: title,
-        message: message,
-        timestamp: now,
-      ),
+    final raised = AppNotification(
+      id: _uuid.v4(),
+      type: type,
+      severity: severity,
+      title: title,
+      message: message,
+      timestamp: now,
     );
+    notifications.insert(0, raised);
+    _pendingNotifications.add(raised);
   }
 
   void _clearAlert(List<AppNotification> notifications, AlertType type) {
     if (!_activeAlerts.contains(type)) return;
     _activeAlerts.remove(type);
+    _pendingClears.add(type);
 
     for (var i = 0; i < notifications.length; i++) {
       if (notifications[i].type == type && notifications[i].isActive) {
@@ -253,6 +275,7 @@ class AlertService {
       ),
     );
     await _storage.saveNotifications(notifications);
+    _pendingNotifications.add(notifications.first);
   }
 
   Future<void> markRead(String id) async {

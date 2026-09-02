@@ -44,6 +44,12 @@ class Esp32BleService {
 
   DeviceConnectionStatus _status = DeviceConnectionStatus.disconnected;
   String _buffer = '';
+  String _lastError = '';
+
+  /// Why the last connection attempt failed, for the pairing UI. Connecting
+  /// but finding no telemetry characteristic looks identical to a flat refusal
+  /// from the user's side, so the reason has to be surfaced.
+  String get lastError => _lastError;
 
   Stream<TelemetrySnapshot> get telemetry => _telemetryController.stream;
   Stream<DeviceConnectionStatus> get connectionStatusStream =>
@@ -126,27 +132,44 @@ class Esp32BleService {
       await target.connect(timeout: const Duration(seconds: 15));
 
       final services = await target.discoverServices();
-      final service = services.firstWhere(
+      final service = services.where(
         (s) => s.uuid == Guid(AppConstants.bleServiceUuid),
-        orElse: () => throw StateError('Poultry service not found'),
-      );
+      ).firstOrNull;
 
-      _commandChar = service.characteristics.firstWhere(
+      if (service == null) {
+        throw StateError(
+          'Connected, but the controller is not advertising the poultry '
+          'service. Check BLE_SERVICE_UUID in the firmware.',
+        );
+      }
+
+      _commandChar = service.characteristics.where(
         (c) => c.uuid == Guid(AppConstants.bleCommandCharUuid),
-        orElse: () => throw StateError('Command characteristic not found'),
-      );
+      ).firstOrNull;
 
-      final telemetryChar = service.characteristics.firstWhere(
+      final telemetryChar = service.characteristics.where(
         (c) => c.uuid == Guid(AppConstants.bleTelemetryCharUuid),
-        orElse: () => throw StateError('Telemetry characteristic not found'),
-      );
+      ).firstOrNull;
+
+      if (_commandChar == null || telemetryChar == null) {
+        final found = service.characteristics
+            .map((c) => c.uuid.str)
+            .join(', ');
+        throw StateError(
+          'Connected, but the expected characteristics are missing. '
+          'The controller offers: $found. Check the UUIDs in the firmware '
+          'match AppConstants exactly.',
+        );
+      }
 
       await telemetryChar.setNotifyValue(true);
       _telemetrySub = telemetryChar.onValueReceived.listen(_onFrame);
 
+      _lastError = '';
       _setStatus(DeviceConnectionStatus.connected);
       return true;
-    } catch (_) {
+    } catch (e) {
+      _lastError = e is StateError ? e.message : e.toString();
       await disconnect();
       return false;
     }
@@ -240,6 +263,29 @@ class Esp32BleService {
       'timeoutMinutes':
           (timeout ?? AppConstants.manualActuatorTimeout).inMinutes,
     });
+  }
+
+  /// Starts or stops hardware-in-the-loop simulation on the controller.
+  Future<bool> setSimulation(bool enabled, {Duration? duration}) {
+    return sendCommand('setSimulation', {
+      'enabled': enabled,
+      if (enabled)
+        'timeoutMinutes':
+            (duration ?? AppConstants.simulationDefaultDuration).inMinutes,
+    });
+  }
+
+  /// Injects a reading for one sensor. Only accepted while simulation is on.
+  Future<bool> setSimulatedSensor(SensorType sensor, double value) {
+    return sendCommand('setSensor', {
+      'sensor': sensor.name,
+      'value': double.parse(value.toStringAsFixed(1)),
+    });
+  }
+
+  /// Hands one sensor back to its real reading.
+  Future<bool> clearSimulatedSensor(SensorType sensor) {
+    return sendCommand('setSensor', {'sensor': sensor.name, 'clear': true});
   }
 
   void _setStatus(DeviceConnectionStatus status) {

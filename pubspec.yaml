@@ -21,6 +21,9 @@ dependencies:
   flutter_screenutil: ^5.9.3
   flutter_mjpeg: ^2.0.4
   flutter_blue_plus: ^1.35.5
+  flutter_local_notifications: ^18.0.1
+  share_plus: ^12.0.2
+  path_provider: ^2.1.6
 
 dev_dependencies:
   flutter_test:

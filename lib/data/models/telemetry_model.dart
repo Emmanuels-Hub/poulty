@@ -56,6 +56,33 @@ class ActuatorState {
       );
 }
 
+/// Bit position of each sensor in the firmware's `simulatedMask`.
+///
+/// These indices are part of the BLE contract and must stay in step with the
+/// `SIM_*` defines in esp/Smart_Poultry/Smart_Poultry.ino.
+const Map<SensorType, int> simulationBits = {
+  SensorType.temperature: 0,
+  SensorType.humidity: 1,
+  SensorType.airPurity: 2,
+  SensorType.feedLevel: 3,
+  SensorType.waterLevel: 4,
+};
+
+Set<SensorType> decodeSimulatedMask(int mask) {
+  return {
+    for (final entry in simulationBits.entries)
+      if (mask & (1 << entry.value) != 0) entry.key,
+  };
+}
+
+int encodeSimulatedMask(Set<SensorType> sensors) {
+  var mask = 0;
+  for (final sensor in sensors) {
+    mask |= 1 << (simulationBits[sensor] ?? 0);
+  }
+  return mask;
+}
+
 class TelemetrySnapshot {
   const TelemetrySnapshot({
     required this.timestamp,
@@ -68,6 +95,8 @@ class TelemetrySnapshot {
     this.poultryStage = PoultryStage.starter,
     this.actuators = const [],
     this.deviceId = 'esp32-main',
+    this.simulationMode = false,
+    this.simulatedSensors = const {},
   });
 
   final DateTime timestamp;
@@ -83,11 +112,20 @@ class TelemetrySnapshot {
   final List<ActuatorState> actuators;
   final String deviceId;
 
+  /// True while the controller is running on injected sensor values.
+  final bool simulationMode;
+
+  /// Which sensors are currently being simulated, decoded from the frame's
+  /// bitmask so the app can label individual readings as fake.
+  final Set<SensorType> simulatedSensors;
+
   /// Derived from the phone's clock: the controller has neither a light
   /// sensor nor a real-time clock, so it cannot report this itself.
   bool get isDaytime =>
       timestamp.hour >= AppConstants.daytimeStartHour &&
       timestamp.hour < AppConstants.daytimeEndHour;
+
+  bool isSimulated(SensorType sensor) => simulatedSensors.contains(sensor);
 
   ActuatorState actuator(ActuatorType type) {
     return actuators.firstWhere(
@@ -107,6 +145,8 @@ class TelemetrySnapshot {
     PoultryStage? poultryStage,
     List<ActuatorState>? actuators,
     String? deviceId,
+    bool? simulationMode,
+    Set<SensorType>? simulatedSensors,
   }) {
     return TelemetrySnapshot(
       timestamp: timestamp ?? this.timestamp,
@@ -119,6 +159,8 @@ class TelemetrySnapshot {
       poultryStage: poultryStage ?? this.poultryStage,
       actuators: actuators ?? this.actuators,
       deviceId: deviceId ?? this.deviceId,
+      simulationMode: simulationMode ?? this.simulationMode,
+      simulatedSensors: simulatedSensors ?? this.simulatedSensors,
     );
   }
 
@@ -133,6 +175,8 @@ class TelemetrySnapshot {
         'poultryStage': poultryStage.name,
         'actuators': actuators.map((a) => a.toJson()).toList(),
         'deviceId': deviceId,
+        'simulationMode': simulationMode,
+        'simulatedMask': encodeSimulatedMask(simulatedSensors),
       };
 
   factory TelemetrySnapshot.fromJson(Map<String, dynamic> json) =>
@@ -161,6 +205,9 @@ class TelemetrySnapshot {
             .map(ActuatorState.fromJson)
             .toList(),
         deviceId: json['deviceId'] as String? ?? 'esp32-main',
+        simulationMode: json['simulationMode'] as bool? ?? false,
+        simulatedSensors:
+            decodeSimulatedMask((json['simulatedMask'] as num?)?.toInt() ?? 0),
       );
 }
 

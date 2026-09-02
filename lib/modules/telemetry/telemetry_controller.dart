@@ -9,7 +9,9 @@ import '../../core/constants/enums.dart';
 import '../../core/services/alert_service.dart';
 import '../../core/services/auth_service.dart';
 import '../../core/services/esp32_ble_service.dart';
+import '../../core/services/history_service.dart';
 import '../../core/services/local_storage_service.dart';
+import '../../core/services/notification_service.dart';
 import '../../core/services/simulation_service.dart';
 import '../../data/models/device_model.dart';
 import '../../data/models/event_model.dart';
@@ -23,6 +25,8 @@ class TelemetryController extends GetxController {
     this._simulation,
     this._alerts,
     this._auth,
+    this._history,
+    this._notifications,
   );
 
   final LocalStorageService _storage;
@@ -30,6 +34,8 @@ class TelemetryController extends GetxController {
   final SimulationService _simulation;
   final AlertService _alerts;
   final AuthService _auth;
+  final HistoryService _history;
+  final NotificationService _notifications;
   final _uuid = const Uuid();
 
   final Rxn<TelemetrySnapshot> current = Rxn<TelemetrySnapshot>();
@@ -54,6 +60,16 @@ class TelemetryController extends GetxController {
   final RxBool isScanning = false.obs;
   final RxBool isMonitoring = false.obs;
 
+  /// Bumped whenever a new history point is logged, so charts rebuild without
+  /// the controller having to mirror every series into an RxList.
+  final RxInt historyRevision = 0.obs;
+
+  /// Locally requested simulation values, mirrored into the UI sliders. The
+  /// controller's own `simulatedSensors` is the source of truth for what is
+  /// actually active.
+  final RxMap<SensorType, double> simulationValues =
+      <SensorType, double>{}.obs;
+
   StreamSubscription<TelemetrySnapshot>? _telemetrySub;
   StreamSubscription<DeviceConnectionStatus>? _statusSub;
   StreamSubscription<List<DiscoveredDevice>>? _scanSub;
@@ -71,6 +87,16 @@ class TelemetryController extends GetxController {
 
   bool get canControlActuators => canControl && isManualModeActive;
 
+  /// True while the controller is acting on injected sensor values.
+  bool get isSimulating => current.value?.simulationMode ?? false;
+
+  Set<SensorType> get simulatedSensors =>
+      current.value?.simulatedSensors ?? const {};
+
+  HistoryService get history => _history;
+
+  String get lastConnectionError => _ble.lastError;
+
   ThemeMode get themeMode => settings.value.themeMode;
 
   @override
@@ -86,6 +112,8 @@ class TelemetryController extends GetxController {
     _statusSub?.cancel();
     _scanSub?.cancel();
     _demoTimer?.cancel();
+    _history.flush();
+    _history.dispose();
     super.onClose();
   }
 
@@ -138,6 +166,7 @@ class TelemetryController extends GetxController {
   void stopMonitoring() {
     isMonitoring.value = false;
     _demoTimer?.cancel();
+    _history.flush();
     _ble.disconnect();
   }
 
@@ -198,8 +227,25 @@ class TelemetryController extends GetxController {
   void _ingest(TelemetrySnapshot snapshot) {
     current.value = snapshot;
     _storage.saveLatestTelemetry(snapshot);
-    _updateHistory(snapshot);
+
+    if (_history.record(snapshot)) {
+      _syncHistoryLists();
+      historyRevision.value++;
+    }
+
     notifications.assignAll(_alerts.evaluate(snapshot, settings.value));
+    _pushOsNotifications();
+  }
+
+  /// Mirrors freshly raised alerts out to the OS notification shade, and
+  /// withdraws the ones whose condition has cleared.
+  void _pushOsNotifications() {
+    for (final alert in _alerts.takePendingNotifications()) {
+      _notifications.show(alert);
+    }
+    for (final cleared in _alerts.takePendingClears()) {
+      _notifications.cancel(cleared);
+    }
   }
 
   void _startDemoFeedIfEnabled() {
@@ -234,36 +280,24 @@ class TelemetryController extends GetxController {
   }
 
   void _loadHistoryFromCache() {
-    temperatureHistory.assignAll(_storage.getHistory('temperature'));
-    humidityHistory.assignAll(_storage.getHistory('humidity'));
-    airPurityHistory.assignAll(_storage.getHistory('airPurity'));
-    feedHistory.assignAll(_storage.getHistory('feed'));
-    waterHistory.assignAll(_storage.getHistory('water'));
+    _history.load();
+    _syncHistoryLists();
   }
 
-  void _updateHistory(TelemetrySnapshot snapshot) {
-    _appendPoint('temperature', snapshot.temperatureC, temperatureHistory);
-    _appendPoint('humidity', snapshot.humidityPercent, humidityHistory);
-    _appendPoint('airPurity', snapshot.airPurityPercent, airPurityHistory);
-    _appendPoint('feed', snapshot.feedLevelPercent, feedHistory);
-    _appendPoint('water', snapshot.waterLevelPercent, waterHistory);
+  void _syncHistoryLists() {
+    temperatureHistory.assignAll(_history.series('temperature'));
+    humidityHistory.assignAll(_history.series('humidity'));
+    airPurityHistory.assignAll(_history.series('airPurity'));
+    feedHistory.assignAll(_history.series('feed'));
+    waterHistory.assignAll(_history.series('water'));
   }
 
-  void _appendPoint(
-    String parameter,
-    double value,
-    RxList<TelemetryHistoryPoint> list,
-  ) {
-    final point = TelemetryHistoryPoint(
-      timestamp: DateTime.now(),
-      value: value,
-      parameter: parameter,
-    );
-    list.add(point);
-    while (list.length > AppConstants.maxHistoryPoints) {
-      list.removeAt(0);
-    }
-    _storage.appendHistoryPoint(point);
+  Future<void> clearHistory() async {
+    if (!canControl) return;
+    await _history.clear();
+    _syncHistoryLists();
+    historyRevision.value++;
+    await _logEvent(EventCategory.system, 'Sensor history cleared');
   }
 
   // --- Commands ------------------------------------------------------------
@@ -300,6 +334,77 @@ class TelemetryController extends GetxController {
       '${type.name} manually set to ${isOn ? 'ON' : 'OFF'}',
     );
     await refreshNow();
+  }
+
+  // --- Simulation ----------------------------------------------------------
+  //
+  // Two paths, one set of controls:
+  //
+  //   * Connected    - values are pushed to the ESP32, which runs its own
+  //                    control logic on them and drives the real relays.
+  //   * Disconnected - values drive the local demo generator instead, so the
+  //                    UI can still be exercised without hardware.
+  //
+  // The firmware owns every safety rule (see applyCriticalSafety there): a
+  // real over-temperature cancels simulation, the session expires on its own,
+  // and losing the BLE link ends it immediately.
+
+  Future<bool> startSimulation({Duration? duration}) async {
+    if (!canControl) return false;
+
+    final window = duration ?? AppConstants.simulationDefaultDuration;
+
+    if (isConnected) {
+      final sent = await _ble.setSimulation(true, duration: window);
+      if (!sent) return false;
+    } else {
+      _simulation.setSimulationActive(true);
+    }
+
+    await _logEvent(
+      EventCategory.system,
+      'Simulation started for ${window.inMinutes} minute(s)',
+    );
+    return true;
+  }
+
+  Future<void> stopSimulation() async {
+    if (!canControl) return;
+
+    if (isConnected) {
+      await _ble.setSimulation(false);
+    }
+    _simulation.setSimulationActive(false);
+    simulationValues.clear();
+
+    await _logEvent(EventCategory.system, 'Simulation stopped');
+    if (!isConnected) _emitDemoSnapshot();
+  }
+
+  /// Injects [value] for [sensor] so the actuators respond to it.
+  Future<void> setSimulatedSensor(SensorType sensor, double value) async {
+    if (!canControl) return;
+    simulationValues[sensor] = value;
+
+    if (isConnected) {
+      await _ble.setSimulatedSensor(sensor, value);
+    } else {
+      _simulation.injectSensorValue(sensor, value);
+      _emitDemoSnapshot();
+    }
+  }
+
+  /// Hands one sensor back to its real reading.
+  Future<void> clearSimulatedSensor(SensorType sensor) async {
+    if (!canControl) return;
+    simulationValues.remove(sensor);
+
+    if (isConnected) {
+      await _ble.clearSimulatedSensor(sensor);
+    } else {
+      _simulation.clearSensorValue(sensor);
+      _emitDemoSnapshot();
+    }
   }
 
   Future<void> saveSettings(AppSettings newSettings) async {

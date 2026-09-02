@@ -159,14 +159,23 @@ class LocalStorageService {
     return parseAll(asJsonMapList(raw), TelemetryHistoryPoint.fromJson);
   }
 
-  Future<void> appendHistoryPoint(TelemetryHistoryPoint point) async {
-    final key = 'history_${point.parameter}';
-    final existing = getHistory(point.parameter);
-    existing.add(point);
-    while (existing.length > AppConstants.maxHistoryPoints) {
-      existing.removeAt(0);
-    }
-    await _telemetryBox!.put(key, existing.map((e) => e.toJson()).toList());
+  /// Writes a whole series at once.
+  ///
+  /// HistoryService batches its commits, replacing the old
+  /// append-one-point-at-a-time path that rewrote the entire series on every
+  /// telemetry frame.
+  Future<void> saveHistory(
+    String parameter,
+    List<TelemetryHistoryPoint> points,
+  ) async {
+    final trimmed = points.length > AppConstants.maxHistoryPoints
+        ? points.sublist(points.length - AppConstants.maxHistoryPoints)
+        : points;
+
+    await _telemetryBox!.put(
+      'history_$parameter',
+      trimmed.map((e) => e.toJson()).toList(),
+    );
   }
 
   List<SystemEvent> getEvents() {
