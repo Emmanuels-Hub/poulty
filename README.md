@@ -16,7 +16,7 @@ Cross-platform Flutter application for monitoring and controlling poultry farm e
 - **Simulation** — Inject sensor readings and watch the real actuators respond, under firmware-enforced safety limits
 - **Live feed** — Continuous MJPEG video from the ESP32-CAM
 - **Production stage** — Starter only
-- **Offline support** — Local caching, plus optional generated demo data while no controller is linked
+- **No invented readings** — With nothing connected every value reads zero, clearly labelled as "no data". Generated demo values are opt-in, and are never logged or alerted on
 
 ## Getting Started
 
@@ -166,6 +166,23 @@ You also need a **calibration factor** (`feedCalibrationFactor` /
 `waterCalibrationFactor` in the sketch) to convert raw counts to kilograms:
 zero the scale, place a known weight, and divide the raw reading by the real
 weight in kg.
+
+## What happens with no controller connected
+
+Every reading shows **zero**, with a banner saying so. Zero means *no reading*,
+not *a reading of zero*, and the distinction is enforced:
+
+- nothing is written to the history log,
+- no alerts are raised (a zero would otherwise trip four at once — cold, foul
+  air, empty feed, empty water),
+- any standing alert is stood down and its notification withdrawn, because a
+  condition nobody is measuring should not keep alerting.
+
+**Settings → Demo data when disconnected** (off by default) substitutes
+generated readings instead, for showing the UI without hardware. Those are
+still never logged or alerted on.
+
+Only frames from the real controller are ever logged or alerted on.
 
 ## Simulation
 

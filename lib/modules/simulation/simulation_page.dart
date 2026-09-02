@@ -340,7 +340,7 @@ class _StatusBanner extends StatelessWidget {
   }
 }
 
-class _SensorSlider extends StatelessWidget {
+class _SensorSlider extends StatefulWidget {
   const _SensorSlider({
     required this.sensor,
     required this.range,
@@ -354,10 +354,27 @@ class _SensorSlider extends StatelessWidget {
   final TelemetryController controller;
 
   @override
+  State<_SensorSlider> createState() => _SensorSliderState();
+}
+
+class _SensorSliderState extends State<_SensorSlider> {
+  /// Held while the thumb is being dragged.
+  ///
+  /// Slider.onChanged fires on every tick, and sending each one would put
+  /// dozens of BLE writes a second into the controller's command buffer. The
+  /// drag is tracked locally and committed once, on release.
+  double? _dragValue;
+
+  @override
   Widget build(BuildContext context) {
     return Obx(() {
+      final controller = widget.controller;
+      final range = widget.range;
+      final sensor = widget.sensor;
+
       final isOverridden = controller.simulatedSensors.contains(sensor);
-      final value = controller.simulationValues[sensor] ??
+      final value = _dragValue ??
+          controller.simulationValues[sensor] ??
           _liveValue() ??
           (range.min + range.max) / 2;
 
@@ -395,14 +412,20 @@ class _SensorSlider extends StatelessWidget {
                 max: range.max,
                 divisions: ((range.max - range.min) * 2).round(),
                 label: '${value.toStringAsFixed(1)}${range.unit}',
-                onChanged: enabled
-                    ? (v) => controller.setSimulatedSensor(sensor, v)
+                onChanged: widget.enabled
+                    ? (v) => setState(() => _dragValue = v)
+                    : null,
+                onChangeEnd: widget.enabled
+                    ? (v) {
+                        setState(() => _dragValue = null);
+                        controller.setSimulatedSensor(sensor, v);
+                      }
                     : null,
               ),
               Align(
                 alignment: Alignment.centerRight,
                 child: TextButton(
-                  onPressed: enabled && isOverridden
+                  onPressed: widget.enabled && isOverridden
                       ? () => controller.clearSimulatedSensor(sensor)
                       : null,
                   child: const Text('Use real reading'),
@@ -416,9 +439,9 @@ class _SensorSlider extends StatelessWidget {
   }
 
   double? _liveValue() {
-    final snapshot = controller.current.value;
+    final snapshot = widget.controller.current.value;
     if (snapshot == null) return null;
-    switch (sensor) {
+    switch (widget.sensor) {
       case SensorType.temperature:
         return snapshot.temperatureC;
       case SensorType.humidity:
