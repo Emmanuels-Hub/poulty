@@ -13,25 +13,29 @@ import 'package:poulty/data/models/telemetry_model.dart';
 import 'package:poulty/data/models/user_model.dart';
 import 'package:poulty/modules/auth/auth_controller.dart';
 
+/// Test files run in parallel processes against the same filesystem, so each
+/// gets its own directory: sharing one makes them fight over Hive's lock.
+final Directory _testDir = Directory.systemTemp.createTempSync('poulty_test_');
+
 class _FakePathProviderPlatform extends PathProviderPlatform {
   @override
   Future<String?> getApplicationDocumentsPath() async {
-    return Directory.systemTemp.path;
+    return _testDir.path;
   }
 
   @override
   Future<String?> getTemporaryPath() async {
-    return Directory.systemTemp.path;
+    return _testDir.path;
   }
 
   @override
   Future<String?> getApplicationSupportPath() async {
-    return Directory.systemTemp.path;
+    return _testDir.path;
   }
 
   @override
   Future<String?> getLibraryPath() async {
-    return Directory.systemTemp.path;
+    return _testDir.path;
   }
 }
 

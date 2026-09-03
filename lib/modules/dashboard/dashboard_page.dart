@@ -154,15 +154,30 @@ class DashboardPage extends StatelessWidget {
                 ),
                 MetricCard(
                   title: 'Air Purity',
-                  trailing: _simulatedMark(snapshot, SensorType.airPurity),
-                  value: snapshot.airPurityPercent.toStringAsFixed(0),
+                  trailing: !snapshot.airPuritySensorOk
+                      ? const Tooltip(
+                          message: 'Gas sensor not detected',
+                          child: Icon(
+                            Icons.error_outline,
+                            size: 14,
+                            color: AppTheme.criticalRed,
+                          ),
+                        )
+                      : _simulatedMark(snapshot, SensorType.airPurity),
+                  value: snapshot.airPuritySensorOk
+                      ? snapshot.airPurityPercent.toStringAsFixed(0)
+                      : '--',
                   unit: '%',
                   icon: Icons.air,
-                  color: snapshot.airPurityPercent <
-                          AppConstants.starterAirPurityMin
+                  color: !snapshot.airPuritySensorOk
+                      ? AppTheme.criticalRed
+                      : snapshot.airPurityPercent <
+                            AppConstants.starterAirPurityMin
                       ? AppTheme.criticalRed
                       : AppTheme.successGreen,
-                  subtitle: _airPurityLabel(snapshot.airPurityPercent),
+                  subtitle: snapshot.airPuritySensorOk
+                      ? _airPurityLabel(snapshot.airPurityPercent)
+                      : 'Sensor not detected',
                 ),
                 MetricCard(
                   title: 'Feed Level',

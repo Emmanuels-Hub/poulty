@@ -99,6 +99,7 @@ class TelemetrySnapshot {
     this.simulatedSensors = const {},
     this.feedScaleTared = true,
     this.waterScaleTared = true,
+    this.airPuritySensorOk = true,
   });
 
   final DateTime timestamp;
@@ -126,6 +127,11 @@ class TelemetrySnapshot {
   /// that does not report this is not treated as uncalibrated.
   final bool feedScaleTared;
   final bool waterScaleTared;
+
+  /// False when the gas sensor is not responding. A dead MQ-135 reads as
+  /// clean air, so the fault has to be reported rather than inferred from
+  /// a suspiciously perfect number.
+  final bool airPuritySensorOk;
 
   /// Every reading at zero, used when nothing is being received.
   ///
@@ -176,6 +182,7 @@ class TelemetrySnapshot {
     Set<SensorType>? simulatedSensors,
     bool? feedScaleTared,
     bool? waterScaleTared,
+    bool? airPuritySensorOk,
   }) {
     return TelemetrySnapshot(
       timestamp: timestamp ?? this.timestamp,
@@ -192,6 +199,7 @@ class TelemetrySnapshot {
       simulatedSensors: simulatedSensors ?? this.simulatedSensors,
       feedScaleTared: feedScaleTared ?? this.feedScaleTared,
       waterScaleTared: waterScaleTared ?? this.waterScaleTared,
+      airPuritySensorOk: airPuritySensorOk ?? this.airPuritySensorOk,
     );
   }
 
@@ -210,6 +218,7 @@ class TelemetrySnapshot {
         'simulatedMask': encodeSimulatedMask(simulatedSensors),
         'feedTared': feedScaleTared,
         'waterTared': waterScaleTared,
+        'airPurityOk': airPuritySensorOk,
       };
 
   factory TelemetrySnapshot.fromJson(Map<String, dynamic> json) =>
@@ -243,6 +252,7 @@ class TelemetrySnapshot {
             decodeSimulatedMask((json['simulatedMask'] as num?)?.toInt() ?? 0),
         feedScaleTared: json['feedTared'] as bool? ?? true,
         waterScaleTared: json['waterTared'] as bool? ?? true,
+        airPuritySensorOk: json['airPurityOk'] as bool? ?? true,
       );
 }
 

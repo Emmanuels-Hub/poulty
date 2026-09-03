@@ -181,6 +181,15 @@
 
 #define GAS_WARMUP_MS 20000UL
 
+// A powered MQ-135 always sits well above zero, even in clean air, because the
+// load resistor is pulled up by the heated element. A reading at or under this
+// means the module is not wired, not powered, or AO is on the wrong pin --
+// NOT that the air is perfectly clean.
+//
+// Without this check raw 0 maps to 114% purity, clamps to 100%, and a dead
+// sensor silently reports ideal air while the fan never runs on air quality.
+#define GAS_MIN_VALID_ADC 30
+
 
 // =====================================================
 //              LOAD CELL CALIBRATION
@@ -259,6 +268,9 @@ bool haveTemperature = false;
 bool haveHumidity = false;
 
 // Whether each load cell is responding, and whether it has ever been tared.
+bool airPuritySensorOk = false;
+int lastGasRawAdc = 0;
+
 bool feedScaleReady = false;
 bool waterScaleReady = false;
 bool feedScaleTared = false;
@@ -832,16 +844,77 @@ void readAirPurity()
 {
   long total = 0;
 
+  int lowest = 4095;
+  int highest = 0;
+
   const int samples = 8;
 
   for (int i = 0; i < samples; i++)
   {
-    total += analogRead(MQ135_PIN);
+    int reading = analogRead(MQ135_PIN);
+
+    if (reading < lowest)
+      lowest = reading;
+
+    if (reading > highest)
+      highest = reading;
+
+    total += reading;
     delay(2);
   }
 
   float raw =
       (float)total / samples;
+
+  lastGasRawAdc = (int)raw;
+
+
+  // A dead sensor must not read as clean air.
+  if (raw <= GAS_MIN_VALID_ADC)
+  {
+    if (airPuritySensorOk)
+    {
+      Serial.println();
+      Serial.println(
+        "ERROR: MQ-135 reads ~0. The sensor is not being seen."
+      );
+      Serial.println(
+        "  - AO must go to GPIO 34 (input only, no pull-up)"
+      );
+      Serial.println(
+        "  - VCC must be 5V: the heater will not run off 3V3"
+      );
+      Serial.println(
+        "  - GND must be common with the ESP32"
+      );
+      Serial.println(
+        "  Holding the last good value; air purity is not controlling the fan."
+      );
+      Serial.println();
+    }
+
+    airPuritySensorOk = false;
+    return;
+  }
+
+
+  // Also flag a pin stuck hard at the top of the range.
+  if (raw >= 4090)
+  {
+    if (airPuritySensorOk)
+    {
+      Serial.println(
+        "ERROR: MQ-135 is railed at 4095 - check AO is not shorted to VCC."
+      );
+    }
+
+    airPuritySensorOk = false;
+    return;
+  }
+
+
+  airPuritySensorOk = true;
+
 
   float span =
       GAS_FOUL_ADC - GAS_CLEAN_ADC;
@@ -856,6 +929,24 @@ void readAirPurity()
         0.0,
         100.0
       );
+
+
+  // A completely flat spread across 8 samples means a floating or shorted
+  // pin rather than a real signal.
+  if (highest == lowest && (millis() - bootMillis) > GAS_WARMUP_MS)
+  {
+    Serial.print(
+      "NOTE: MQ-135 returned a perfectly flat "
+    );
+
+    Serial.print(
+      lowest
+    );
+
+    Serial.println(
+      " across all samples - verify the wiring."
+    );
+  }
 }
 
 
@@ -1130,6 +1221,7 @@ void applyAutomaticControl()
   // every boot would start with the fan running on a meaningless reading.
   if (
       gasSensorWarmedUp() &&
+      (airPuritySensorOk || simulationActive) &&
       effAirPurityPercent < AIR_PURITY_WARNING_LOW
      )
   {
@@ -1162,6 +1254,7 @@ void applyAutomaticControl()
           &&
 
           (!gasSensorWarmedUp() ||
+           (!airPuritySensorOk && !simulationActive) ||
            effAirPurityPercent >
                (AIR_PURITY_WARNING_LOW +
                 PURITY_HYSTERESIS));
@@ -1194,6 +1287,20 @@ void applyAutomaticControl()
       heatLampOn = false;
     }
   }
+
+  // ===================================================
+  // EXTREME COLD
+  // ===================================================
+  //
+  // Heat takes priority over ventilation. Only applies here, in automatic
+  // control - a manual command is the operator's call.
+  //
+
+  if (effTemperatureC <= TEMP_CRITICAL_LOW)
+  {
+    heatLampOn = true;
+    fanOn = false;
+  }
 }
 
 
@@ -1204,14 +1311,16 @@ void applyAutomaticControl()
 // Runs in EVERY mode - automatic, manual and simulation - and always from the
 // REAL sensor reading. Simulated values are ignored here on purpose.
 //
-// CRITICAL HIGH is a hazard to the birds and to the 35W bulb itself, so it
-// always wins: fan ON, bulb OFF, manual overrides dropped, simulation
-// cancelled. Nothing the app sends can suppress it.
+// This layer handles ONE case: critically HIGH temperature. That is a hazard
+// to the birds and to the 35W bulb itself, so it always wins - fan ON, bulb
+// OFF, manual overrides dropped, simulation cancelled.
 //
-// CRITICAL LOW is different. It only endangers live birds, and it is true of
-// any bench sitting at room temperature - enforcing it would pin the bulb ON
-// and make simulation impossible to demonstrate. So while the operator has
-// explicitly declared a simulation session, it is reported but not enforced.
+// Critically LOW temperature is deliberately NOT handled here. It is a welfare
+// condition rather than an equipment hazard, and TEMP_CRITICAL_LOW (30C) is
+// below any normal room, so enforcing it at this level would fire on every
+// cycle on a bench: it would wipe the operator's manual overrides and pin the
+// bulb on, making Manual mode look completely dead. The cold response lives in
+// applyAutomaticControl() instead, where the operator is not in charge.
 //
 // =====================================================
 
@@ -1236,24 +1345,6 @@ void applyCriticalSafety()
         "real temperature critically high"
       );
     }
-
-    return;
-  }
-
-
-  if (temperatureC <= TEMP_CRITICAL_LOW)
-  {
-    if (simulationActive)
-    {
-      // Reported, not enforced - see the note above.
-      return;
-    }
-
-    heatLampOn = true;
-    fanOn = false;
-
-    fanManual = false;
-    heatLampManual = false;
   }
 }
 
@@ -1471,9 +1562,9 @@ void printStatus()
   );
 
   Serial.println(
-    getAirPurityCategory(
-      airPurityPercent
-    )
+    airPuritySensorOk
+      ? getAirPurityCategory(airPurityPercent)
+      : "NO SENSOR"
   );
 
 
@@ -1687,9 +1778,20 @@ void printStatus()
     "MQ-135 Raw  : "
   );
 
-  Serial.println(
-    analogRead(MQ135_PIN)
+  Serial.print(
+    lastGasRawAdc
   );
+
+  if (!airPuritySensorOk)
+  {
+    Serial.println(
+      "  <-- SENSOR NOT DETECTED (check AO wiring and 5V supply)"
+    );
+  }
+  else
+  {
+    Serial.println();
+  }
 
 
   if (
@@ -1741,6 +1843,7 @@ String buildTelemetryJson()
 
         "\"feedTared\":%s,"
         "\"waterTared\":%s,"
+        "\"airPurityOk\":%s,"
 
         "\"temperatureCategory\":\"%s\","
         "\"humidityCategory\":\"%s\","
@@ -1795,6 +1898,10 @@ String buildTelemetryJson()
           : "false",
 
         waterScaleTared
+          ? "true"
+          : "false",
+
+        airPuritySensorOk
           ? "true"
           : "false",
 
